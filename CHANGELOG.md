@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.0 — Post-spawn check for oracles
+
+### Accuracy
+- The post-spawn health check now also covers the **oracle services** (esc/eid/pg + dormant eco/pgp oracles). `start` verifies every chain *and* oracle actually stays up, reporting any dead-on-launch process immediately with its log tail.
+
+### Roadmap (next — both externally gated)
+- `set -o pipefail` sweep — pending a real Linux smoke test (won't ship blind).
+- Binary-download checksum — needs upstream-published checksums at `download.elastos.io`.
+
 ## v0.6.0 — Post-spawn health check
 
 ### Accuracy

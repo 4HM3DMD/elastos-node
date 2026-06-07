@@ -3955,6 +3955,7 @@ esc-oracle_start()
         | rotatelogs $SCRIPT_PATH/esc-oracle/logs/esc-oracle_out-%Y-%m-%d-%H_%M_%S.log 20M" &
 
     sleep 1
+    verify_started esc-oracle
     esc-oracle_status
 }
 
@@ -3991,6 +3992,7 @@ eco-oracle_start()
         | rotatelogs $SCRIPT_PATH/eco-oracle/logs/eco-oracle_out-%Y-%m-%d-%H_%M_%S.log 20M" &
 
     sleep 1
+    verify_started eco-oracle
     eco-oracle_status
 }
 
@@ -4027,6 +4029,7 @@ pgp-oracle_start()
         | rotatelogs $SCRIPT_PATH/pgp-oracle/logs/pgp-oracle_out-%Y-%m-%d-%H_%M_%S.log 20M" &
 
     sleep 1
+    verify_started pgp-oracle
     pgp-oracle_status
 }
 
@@ -4063,6 +4066,7 @@ pg-oracle_start()
         | rotatelogs $SCRIPT_PATH/pg-oracle/logs/pg-oracle_out-%Y-%m-%d-%H_%M_%S.log 20M" &
 
     sleep 1
+    verify_started pg-oracle
     pg-oracle_status
 }
 
@@ -5128,6 +5132,7 @@ eid-oracle_start()
         | rotatelogs $SCRIPT_PATH/eid-oracle/logs/eid-oracle_out-%Y-%m-%d-%H_%M_%S.log 20M" &
 
     sleep 1
+    verify_started eid-oracle
     eid-oracle_status
 }
 
