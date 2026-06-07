@@ -1,0 +1,11 @@
+# working backups
+*.bak
+node.sh.pre-*.bak
+
+# operator-local runtime config — never commit
+.config/
+/profile
+
+# logs / data
+*.log
+/data/
