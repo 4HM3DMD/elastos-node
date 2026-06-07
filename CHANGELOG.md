@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.0 — Scriptable health checks + sync progress
+
+### Monitoring
+- **`node.sh health`** and **`node.sh <chain> health`** — a one-line verdict per chain with a **meaningful exit code** (`0` healthy; non-zero if stopped / syncing / no peers). Built for cron and alerting: `node.sh health && ok || alert`. `node.sh health` exits non-zero if *any* chain in the active profile is unhealthy.
+
+### UX
+- **`<chain> status --pretty`** now shows a **sync-progress line** (`current / highest (NN%)`) while a chain is catching up.
+
+All additive — no change to existing output or commands.
+
+### Roadmap (next)
+- Apply the correct parsing inside the legacy per-chain `status` (RPC-error → `N/A`, not `0`).
+- Post-spawn health check on `start` (surface a daemon that dies on launch).
+- `set -o pipefail` sweep (pending Linux verification).
+- Binary-download checksum.
+
 ## v0.3.0 — Real health dashboard + `--json`
 
 ### Accuracy

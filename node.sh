@@ -135,6 +135,45 @@ evm_reward_status()
     fi
 }
 
+# evm_sync_detail <chain>: "cur / high (P%)" while syncing, empty otherwise.
+evm_sync_detail()
+{
+    local r cur high
+    r=$(evm_rpc "$1" eth_syncing 2>/dev/null)
+    echo "$r" | jq -e '.result == false' >/dev/null 2>&1 && return 1
+    cur=$(hex_to_dec "$(echo "$r" | jq -r '.result.currentBlock // empty' 2>/dev/null)")
+    high=$(hex_to_dec "$(echo "$r" | jq -r '.result.highestBlock // empty' 2>/dev/null)")
+    [ -n "$cur" ] && [ -n "$high" ] && [ "$high" -gt 0 ] || return 1
+    printf '%s / %s (%s%%)\n' "$cur" "$high" "$(( cur * 100 / high ))"
+}
+
+# render_health <chain>: print a one-line verdict; exit 0 healthy, 1 if attention needed.
+# Designed for monitoring/cron: `node.sh esc health && ok || alert`.
+render_health()
+{
+    local chain=$1 p sy
+    "${chain}_installed" 2>/dev/null || { echo "$chain: not installed"; return 1; }
+    chain_running "$chain"           || { echo "$chain: stopped";       return 1; }
+    case "$chain" in
+        *-oracle|arbiter) echo "$chain: running"; return 0 ;;
+    esac
+    sy=$(chain_synced "$chain" 2>/dev/null)
+    p=$(chain_peers  "$chain" 2>/dev/null)
+    [ "$sy" == "syncing" ]         && { echo "$chain: syncing";  return 1; }
+    [ -n "$p" ] && [ "$p" == "0" ] && { echo "$chain: no peers"; return 1; }
+    echo "$chain: healthy"; return 0
+}
+
+# render_health_all: health for every chain in the profile; exit non-zero if any unhealthy.
+render_health_all()
+{
+    local chain rc=0
+    for chain in $(profile_chains); do
+        render_health "$chain" || rc=1
+    done
+    return $rc
+}
+
 # render_summary: one row per chain in the active profile (the fleet glance).
 render_summary()
 {
@@ -184,6 +223,10 @@ render_pretty()
     [ -n "$p" ] && [ "$p" == "0" ]       && { glyph=$(ui_red "$UI_DOT_WARN");    word=$(ui_red 'NO PEERS'); }
     printf '\n  %s  %s  %s\n' "$glyph" "$(ui_bold "$chain")" "$word"
     [ -n "$h" ] && printf '  height   %s\n' "$h"
+    if [ "$sy" == "syncing" ]; then
+        local _sd; _sd=$(evm_sync_detail "$chain" 2>/dev/null)
+        [ -n "$_sd" ] && printf '  sync     %s\n' "$_sd"
+    fi
     [ -n "$p" ] && printf '  peers    %s\n' "$p"
     case "$chain" in
         esc|eco|pgp|pg|eid)
@@ -5919,6 +5962,9 @@ elif [ "$1" == "profile" ]; then
 elif [ "$1" == "summary" ]; then
     if [ "$2" == "--json" ]; then render_json_all; else render_summary; fi
     exit
+elif [ "$1" == "health" ]; then
+    render_health_all
+    exit $?
 elif [ "$1" == "set_path" ]; then
     set_path
     exit
@@ -5974,6 +6020,7 @@ else
     elif [ "$2" == "start"   ] || \
          [ "$2" == "stop"    ] || \
          [ "$2" == "status"  ] || \
+         [ "$2" == "health"  ] || \
          [ "$2" == "client"  ] || \
          [ "$2" == "jsonrpc" ] || \
          [ "$2" == "update"  ] || [ "$2" == "upgrade" ] || \
@@ -6015,6 +6062,10 @@ else
     if [ "$COMMAND" == "status" ] && [ "$1" == "--json" ]; then
         render_json_one $CHAIN_NAME
         exit
+    fi
+    if [ "$COMMAND" == "health" ]; then
+        render_health $CHAIN_NAME
+        exit $?
     fi
 
     ${CHAIN_NAME}_${COMMAND} "$@"
