@@ -16,14 +16,19 @@ mkdir -p ~/node && cd ~/node
 curl -fsSLO https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/node.sh
 chmod +x node.sh
 
-# choose what this node runs
-./node.sh profile set mainchain     # ELA main chain only
-#   or
-./node.sh profile set full          # ELA + side chains + oracles + arbiter (default)
+./node.sh setup      # ONE command: deps + 16G swap + firewall + autostart, then init
+./node.sh start      # (side chains: set a cold reward address first — see Security)
+./node.sh summary
+```
 
-./node.sh init                      # set up the active profile's chains
+`setup` asks **main-chain-only vs full stack**, then prepares the whole box (it uses `sudo`).
+Prefer to drive each step yourself? Use them individually:
+
+```bash
+./node.sh profile set mainchain|full   # choose the profile
+./node.sh init                         # download binaries + create keystore (one command)
+./node.sh firewall                     # open peer/consensus ports (RPC stays loopback)
 ./node.sh start
-./node.sh status
 ```
 
 ## Deployment profiles
@@ -82,6 +87,8 @@ For remote monitoring, front the node with an SSH tunnel or VPN rather than expo
 ```
 ./node.sh                       # usage
 ./node.sh help | -h | --help    # usage
+./node.sh setup                 # turnkey: deps + swap + firewall + autostart + init
+./node.sh firewall              # open peer/consensus ports for the profile (RPC stays loopback)
 ./node.sh profile [set <p>]     # show / set deployment profile (mainchain | full)
 ./node.sh summary [--json]      # health view for the active profile (height, peers, sync)
 ./node.sh health                # health check for the active profile (exit code for cron)

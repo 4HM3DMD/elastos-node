@@ -1085,6 +1085,86 @@ profile()
     echo "Change with: $SCRIPT_NAME profile set [mainchain|full]"
 }
 
+# firewall: open the peer + consensus ports for the active profile.
+# RPC/WS are deliberately NOT opened - they bind to 127.0.0.1 and must stay private.
+firewall()
+{
+    if ! command -v ufw >/dev/null 2>&1; then
+        echo_error "ufw not found (sudo apt-get install -y ufw)"; return 1
+    fi
+    local prof p; prof=$(get_profile)
+    echo "Opening peer/consensus ports for profile '$prof' (RPC stays on 127.0.0.1)..."
+    sudo ufw allow 22/tcp    >/dev/null   # SSH
+    sudo ufw allow 20338/tcp >/dev/null   # ELA P2P
+    sudo ufw allow 20339/tcp >/dev/null   # ELA DPoS
+    if [ "$prof" == "full" ]; then
+        for p in 20638 20648 20678; do    # EVM devp2p (tcp + udp discovery)
+            sudo ufw allow $p/tcp >/dev/null
+            sudo ufw allow $p/udp >/dev/null
+        done
+        for p in 20639 20649 20679; do    # EVM PBFT consensus
+            sudo ufw allow $p/tcp >/dev/null
+        done
+    fi
+    sudo ufw --force enable >/dev/null
+    echo_ok "firewall configured"
+    sudo ufw status verbose
+}
+
+# setup: one-time host prep for a fresh Ubuntu box, then initialize the node.
+# Installs dependencies, adds swap, opens the firewall, enables autostart, runs init.
+setup()
+{
+    echo "=== Elastos node setup ==="
+    profile_prompt_if_unset
+    local prof; prof=$(get_profile)
+    echo "This will: install packages, add 16G swap, configure the firewall, enable"
+    echo "autostart, and initialize the '$prof' profile. It uses sudo."
+    local ANSWER
+    read -p "Proceed (Yes/No)? " ANSWER
+    if [ "$ANSWER" != "Yes" ] && [ "$ANSWER" != "yes" ] && [ "$ANSWER" != "y" ]; then
+        echo "Aborted."; return 1
+    fi
+
+    echo; echo "-- 1/5 dependencies --"
+    sudo apt-get update
+    sudo apt-get install -y jq lsof apache2-utils curl openssl ufw
+    [ "$prof" == "full" ] && sudo apt-get install -y nodejs npm make gcc
+
+    echo; echo "-- 2/5 swap (16G headroom for sync) --"
+    if [ "$(swapon --show 2>/dev/null | wc -l)" -eq 0 ] && [ ! -f /swapfile ]; then
+        sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile
+        sudo mkswap /swapfile && sudo swapon /swapfile
+        grep -q '^/swapfile ' /etc/fstab 2>/dev/null || \
+            echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab >/dev/null
+        echo_ok "16G swap added"
+    else
+        echo "swap already present - skipping"
+    fi
+
+    echo; echo "-- 3/5 firewall --"
+    firewall
+
+    echo; echo "-- 4/5 autostart on reboot --"
+    ( crontab -l 2>/dev/null | grep -vF "$SCRIPT_PATH/$SCRIPT_NAME start"
+      echo "@reboot $SCRIPT_PATH/$SCRIPT_NAME start" ) | crontab -
+    echo_ok "autostart enabled (@reboot)"
+
+    echo; echo "-- 5/5 initialize chains --"
+    all_init
+
+    echo; echo_ok "setup complete"
+    echo "Next steps:"
+    if [ "$prof" == "full" ]; then
+        echo "  1. set a COLD reward address for mining (rewards must not go to a hot wallet):"
+        echo "       for c in esc eid pg; do echo 0xYOURCOLDADDR > $SCRIPT_PATH/\$c/data/miner_address.txt; chmod 600 $SCRIPT_PATH/\$c/data/miner_address.txt; done"
+    fi
+    echo "  2. start:            $SCRIPT_NAME start"
+    echo "  3. check:            $SCRIPT_NAME summary"
+    echo "  4. after full sync, get the 02/03... public key to register in Essentials:"
+    echo "       $SCRIPT_NAME ela status"
+}
+
 all_start()
 {
     local chain
@@ -5993,6 +6073,12 @@ elif [ "$1" == "summary" ]; then
 elif [ "$1" == "health" ]; then
     render_health_all
     exit $?
+elif [ "$1" == "setup" ]; then
+    setup
+    exit
+elif [ "$1" == "firewall" ]; then
+    firewall
+    exit
 elif [ "$1" == "set_path" ]; then
     set_path
     exit

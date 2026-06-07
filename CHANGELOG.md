@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.0 — Turnkey setup (deps, swap, firewall, autostart)
+
+### Onboarding
+- **`node.sh setup`** — one command to prepare a fresh Ubuntu box and initialize the node: installs dependencies, adds a 16 GB swap, **opens the firewall**, enables `@reboot` autostart, then runs `init`. Profile-aware, idempotent, asks before making changes. This replaces the official guide's *manual* deps / swap / `ufw` / cron steps.
+- **`node.sh firewall`** — open just the peer + consensus ports for the active profile:
+  - mainchain: `20338`, `20339`
+  - full: + `20638/20648/20678` (tcp+udp) and `20639/20649/20679`
+- **RPC/WS ports are deliberately NOT opened** (they bind to `127.0.0.1`) — unlike the upstream guide, which exposes `20336/20636/20646/20676` to the internet.
+
 ## v0.7.1 — Fix: no more running a command twice on first run
 
 - The **first** invocation of any command previously only selected the network, wrote `~/.config/elastos/node.json`, and **exited** — forcing you to re-run (e.g. `init` had to be run twice). It now writes the config and **continues with the requested command in one shot**.
