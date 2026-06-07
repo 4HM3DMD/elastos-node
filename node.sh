@@ -1398,7 +1398,7 @@ ela_status()
 
     local ELA_NUM_PEERS=$(ela_client info getconnectioncount)
     if [[ ! "$ELA_NUM_PEERS" =~ ^[0-9]+$ ]]; then
-        ELA_NUM_PEERS=0
+        ELA_NUM_PEERS=N/A
     fi
     local ELA_HEIGHT=$(ela_client info getcurrentheight)
     if [[ ! "$ELA_HEIGHT" =~ ^[0-9]+$ ]]; then
@@ -3048,14 +3048,14 @@ esc_status()
     local ESC_NUM_PEERS=$(esc_jsonrpc \
         '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' \
         | jq -r '.result')
-    ESC_NUM_PEERS=$(($ESC_NUM_PEERS))
+    ESC_NUM_PEERS=$(hex_to_dec "$ESC_NUM_PEERS")
     if [[ ! "$ESC_NUM_PEERS" =~ ^[0-9]+$ ]]; then
-        ESC_NUM_PEERS=0
+        ESC_NUM_PEERS=N/A
     fi
     local ESC_HEIGHT=$(esc_jsonrpc \
         '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
         | jq -r '.result')
-    ESC_HEIGHT=$(($ESC_HEIGHT))
+    ESC_HEIGHT=$(hex_to_dec "$ESC_HEIGHT")
     if [[ ! "$ESC_HEIGHT" =~ ^[0-9]+$ ]]; then
         ESC_HEIGHT=N/A
     fi
@@ -3128,14 +3128,14 @@ eco_status()
     local ECO_NUM_PEERS=$(eco_jsonrpc \
         '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' \
         | jq -r '.result')
-    ECO_NUM_PEERS=$(($ECO_NUM_PEERS))
+    ECO_NUM_PEERS=$(hex_to_dec "$ECO_NUM_PEERS")
     if [[ ! "$ECO_NUM_PEERS" =~ ^[0-9]+$ ]]; then
-        ECO_NUM_PEERS=0
+        ECO_NUM_PEERS=N/A
     fi
     local ECO_HEIGHT=$(eco_jsonrpc \
         '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
         | jq -r '.result')
-    ECO_HEIGHT=$(($ECO_HEIGHT))
+    ECO_HEIGHT=$(hex_to_dec "$ECO_HEIGHT")
     if [[ ! "$ECO_HEIGHT" =~ ^[0-9]+$ ]]; then
         ECO_HEIGHT=N/A
     fi
@@ -3209,14 +3209,14 @@ pgp_status()
     local PGP_NUM_PEERS=$(pgp_jsonrpc \
         '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' \
         | jq -r '.result')
-    PGP_NUM_PEERS=$(($PGP_NUM_PEERS))
+    PGP_NUM_PEERS=$(hex_to_dec "$PGP_NUM_PEERS")
     if [[ ! "$PGP_NUM_PEERS" =~ ^[0-9]+$ ]]; then
-        PGP_NUM_PEERS=0
+        PGP_NUM_PEERS=N/A
     fi
     local PGP_HEIGHT=$(pgp_jsonrpc \
         '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
         | jq -r '.result')
-    PGP_HEIGHT=$(($PGP_HEIGHT))
+    PGP_HEIGHT=$(hex_to_dec "$PGP_HEIGHT")
     if [[ ! "$PGP_HEIGHT" =~ ^[0-9]+$ ]]; then
         PGP_HEIGHT=N/A
     fi
@@ -3289,14 +3289,14 @@ pg_status()
     local PG_NUM_PEERS=$(pg_jsonrpc \
         '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' \
         | jq -r '.result')
-    PG_NUM_PEERS=$(($PG_NUM_PEERS))
+    PG_NUM_PEERS=$(hex_to_dec "$PG_NUM_PEERS")
     if [[ ! "$PG_NUM_PEERS" =~ ^[0-9]+$ ]]; then
-        PG_NUM_PEERS=0
+        PG_NUM_PEERS=N/A
     fi
     local PG_HEIGHT=$(pg_jsonrpc \
         '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
         | jq -r '.result')
-    PG_HEIGHT=$(($PG_HEIGHT))
+    PG_HEIGHT=$(hex_to_dec "$PG_HEIGHT")
     if [[ ! "$PG_HEIGHT" =~ ^[0-9]+$ ]]; then
         PG_HEIGHT=N/A
     fi
@@ -4848,14 +4848,14 @@ eid_status()
     local EID_NUM_PEERS=$(eid_jsonrpc \
         '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' \
         | jq -r '.result')
-    EID_NUM_PEERS=$(($EID_NUM_PEERS))
+    EID_NUM_PEERS=$(hex_to_dec "$EID_NUM_PEERS")
     if [[ ! "$EID_NUM_PEERS" =~ ^[0-9]+$ ]]; then
-        EID_NUM_PEERS=0
+        EID_NUM_PEERS=N/A
     fi
     local EID_HEIGHT=$(eid_jsonrpc \
         '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
         | jq -r '.result')
-    EID_HEIGHT=$(($EID_HEIGHT))
+    EID_HEIGHT=$(hex_to_dec "$EID_HEIGHT")
     if [[ ! "$EID_HEIGHT" =~ ^[0-9]+$ ]]; then
         EID_HEIGHT=N/A
     fi

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.0 — Honest status (no more fake zeros)
+
+### Accuracy
+- The legacy per-chain `status` now uses the correct, error-aware parser everywhere: a height or peer count from a **down or unreachable RPC shows `N/A`**, not a fake `0`. A genuine `0` (block 0, zero peers) still shows `0` — so the two are finally distinguishable. Correct hex parsing (`hex_to_dec`) replaces the `$(( ))` that silently turned errors into zero. Applies to `esc` / `eid` / `pg` (and the dormant `eco` / `pgp`) heights + peers, and `ela` peers.
+
+> Output note: the only change is in the **error case** (RPC unreachable), `0` → `N/A`. All normal values are unchanged.
+
+### Roadmap (next)
+- Post-spawn health check on `start` (surface a daemon that dies on launch).
+- `set -o pipefail` sweep (pending Linux verification).
+- Binary-download checksum.
+
 ## v0.4.0 — Scriptable health checks + sync progress
 
 ### Monitoring
