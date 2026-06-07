@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.6.0 — Post-spawn health check
+
+### Accuracy
+- After `start`, each chain daemon (`ela`, `esc`, `eid`, `pg`, and the dormant `eco`/`pgp`) is **verified to actually stay up**. If it died on launch, `start` now prints a clear failure and the **last lines of its log** immediately — instead of leaving the operator to notice a `stopped` status later.
+
+### Roadmap (next)
+- Extend the post-spawn check to the oracle services.
+- `set -o pipefail` sweep (pending Linux verification).
+- Binary-download checksum (needs upstream-published checksums).
+
 ## v0.5.0 — Honest status (no more fake zeros)
 
 ### Accuracy

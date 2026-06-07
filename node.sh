@@ -87,6 +87,22 @@ did_you_mean()
     [ -n "$best" ] && echo "  Did you mean '$best'?"
 }
 
+# verify_started <chain>: confirm the daemon is alive shortly after a start; if not,
+# surface the failure + the tail of its most recent log, so a dead-on-launch daemon is
+# reported immediately instead of inferred from a later "stopped" status.
+verify_started()
+{
+    local chain=$1 log
+    chain_running "$chain" && return 0
+    echo_error "$chain failed to start (not running after launch)"
+    log=$(ls -t "$SCRIPT_PATH/$chain/logs/"*.log "$SCRIPT_PATH/$chain/elastos/logs/node/"*.log 2>/dev/null | head -1)
+    if [ -n "$log" ]; then
+        echo "  last lines of $(basename "$log"):"
+        tail -n 6 "$log" 2>/dev/null | sed 's/^/    /'
+    fi
+    return 1
+}
+
 # --- health data substrate (timeout-bounded; never hangs; error != 0) ---
 
 evm_port() { case "$1" in esc) echo 20636;; eco) echo 20656;; pgp) echo 20666;; pg) echo 20676;; eid) echo 20646;; *) return 1;; esac; }
@@ -1208,6 +1224,7 @@ ela_start()
         nohup ./ela 1>/dev/null 2>output &
     fi
     sleep 1
+    verify_started ela
     ela_status
 }
 
@@ -2517,6 +2534,7 @@ esc_start()
     fi
 
     sleep 3
+    verify_started esc
     esc_status
 }
 
@@ -2588,6 +2606,7 @@ eco_start()
     fi
 
     sleep 3
+    verify_started eco
     eco_status
 }
 
@@ -2659,6 +2678,7 @@ pgp_start()
     fi
 
     sleep 3
+    verify_started pgp
     pgp_status
 }
 
@@ -2731,6 +2751,7 @@ pg_start()
     fi
 
     sleep 3
+    verify_started pg
     pg_status
 }
 
@@ -4734,6 +4755,7 @@ EOF
     fi
 
     sleep 3
+    verify_started eid
     eid_status
 }
 
