@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.3.0 — Real health dashboard + `--json`
+
+### Accuracy
+- New **timeout-bounded RPC substrate** (`curl --max-time 3`, so a status query can never hang) with **correct hex parsing** (`hex_to_dec` — no `$(( ))` octal/zero trap) and **error ≠ zero**: a down or unreachable RPC shows `?`, never a fake `0`.
+
+### UX (additive — legacy per-chain `status` output unchanged)
+- **`node.sh summary`** now shows **HEIGHT** and **PEERS** per chain, with sync- and peer-aware health glyphs (●/◐/○).
+- **`node.sh <chain> status --pretty`** now reports height, peers, sync state, and a **hot-wallet** flag on the reward address, above the full status.
+- **`--json`** machine-readable output: `node.sh summary --json` (array) and `node.sh <chain> status --json` (object), each `{chain, installed, running, height, peers, sync, reward}`.
+
+### Roadmap (next)
+- Network-tip / sync-% column (`eth_syncing` highestBlock + the ELA tip).
+- Apply the same correct parsing inside the legacy per-chain `status` (post-spawn health check too).
+- `set -o pipefail` sweep (pending verification on a Linux node).
+- Binary-download checksum (the remaining `# TODO: verify checksum`).
+
 ## v0.2.0 — Safer + apple-grade UX
 
 ### Security / safety

@@ -87,43 +87,148 @@ did_you_mean()
     [ -n "$best" ] && echo "  Did you mean '$best'?"
 }
 
+# --- health data substrate (timeout-bounded; never hangs; error != 0) ---
+
+evm_port() { case "$1" in esc) echo 20636;; eco) echo 20656;; pgp) echo 20666;; pg) echo 20676;; eid) echo 20646;; *) return 1;; esac; }
+
+# evm_rpc <chain> <method> [params-json] : raw JSON response (curl capped at 3s)
+evm_rpc()
+{
+    local port; port=$(evm_port "$1") || return 1
+    curl -s --max-time 3 -X POST -H 'Content-Type: application/json' \
+        --data "{\"jsonrpc\":\"2.0\",\"method\":\"$2\",\"params\":${3:-[]},\"id\":1}" \
+        "http://127.0.0.1:$port" 2>/dev/null
+}
+
+# hex_to_dec <0x..> : decimal, or empty. Avoids the $(( )) octal/zero trap.
+hex_to_dec() { case "$1" in 0x*|0X*) echo $((16#${1#0[xX]})) ;; *) return 1 ;; esac; }
+
+evm_height() { local r; r=$(evm_rpc "$1" eth_blockNumber | jq -r '.result // empty' 2>/dev/null); hex_to_dec "$r"; }
+evm_peers()  { local r; r=$(evm_rpc "$1" net_peerCount  | jq -r '.result // empty' 2>/dev/null); hex_to_dec "$r"; }
+evm_syncing()
+{
+    local r; r=$(evm_rpc "$1" eth_syncing | jq -r '.result' 2>/dev/null)
+    [ -z "$r" ] && return 1
+    if [ "$r" == "false" ]; then echo synced; else echo syncing; fi
+}
+
+ela_height() { local h; h=$(ela_client info getcurrentheight 2>/dev/null);   [[ "$h" =~ ^[0-9]+$ ]] && echo "$h" || return 1; }
+ela_peers()  { local p; p=$(ela_client info getconnectioncount 2>/dev/null); [[ "$p" =~ ^[0-9]+$ ]] && echo "$p" || return 1; }
+
+# unified per-chain probes (ela vs EVM); services (oracle/arbiter) have no height/peers
+chain_height() { case "$1" in ela) ela_height ;; esc|eco|pgp|pg|eid) evm_height "$1" ;; *) return 1 ;; esac; }
+chain_peers()  { case "$1" in ela) ela_peers  ;; esc|eco|pgp|pg|eid) evm_peers  "$1" ;; *) return 1 ;; esac; }
+chain_synced() { case "$1" in ela) ela_synced 2>/dev/null && echo synced || echo syncing ;; esc|eco|pgp|pg|eid) evm_syncing "$1" ;; *) return 1 ;; esac; }
+
+# evm_reward_status <chain> : cold | hot | unset  (hot = reward addr == local keystore acct)
+evm_reward_status()
+{
+    local addr hot kf
+    [ -f "$SCRIPT_PATH/$1/data/miner_address.txt" ] && addr=$(tr -d '[:space:]' < "$SCRIPT_PATH/$1/data/miner_address.txt" 2>/dev/null)
+    echo "$addr" | grep -qiE '^0x[0-9a-f]{40}$' || { echo unset; return; }
+    kf=$(ls "$SCRIPT_PATH/$1/data/keystore/"UTC* 2>/dev/null | head -1)
+    [ -n "$kf" ] && hot=$(jq -r .address "$kf" 2>/dev/null)
+    if [ -n "$hot" ] && [ "$(echo "${addr#0x}" | tr A-Z a-z)" == "$(echo "$hot" | tr A-Z a-z)" ]; then
+        echo hot
+    else
+        echo cold
+    fi
+}
+
 # render_summary: one row per chain in the active profile (the fleet glance).
 render_summary()
 {
-    local prof; prof=$(get_profile)
-    local total=0 running=0 stopped=0 chain st glyph
+    local prof total=0 running=0 stopped=0 chain st glyph h p sy
+    prof=$(get_profile)
     echo
     printf '  %s   profile: %s\n' "$(ui_bold 'Elastos node')" "$prof"
-    printf '  %-13s %-14s %s\n' 'CHAIN' 'STATE' 'HEALTH'
-    printf '  %s\n' '----------------------------------------'
+    printf '  %-12s %-9s %-13s %-6s %s\n' 'CHAIN' 'STATE' 'HEIGHT' 'PEERS' 'HEALTH'
+    printf '  %s\n' '-------------------------------------------------------'
     for chain in $(profile_chains); do
-        total=$((total + 1))
+        total=$((total + 1)); h='-'; p='-'
         if ! "${chain}_installed" 2>/dev/null; then
-            st='not installed'; glyph=$(ui_dim "$UI_DOT_OFF")
+            st='-'; glyph=$(ui_dim "$UI_DOT_OFF")
         elif chain_running "$chain"; then
-            st='running'; glyph="$(ui_green "$UI_DOT_OK")"; running=$((running + 1))
+            st='running'; glyph=$(ui_green "$UI_DOT_OK"); running=$((running + 1))
+            h=$(chain_height "$chain" 2>/dev/null); [ -z "$h" ] && h='?'
+            p=$(chain_peers  "$chain" 2>/dev/null); [ -z "$p" ] && p='-'
+            sy=$(chain_synced "$chain" 2>/dev/null)
+            [ "$sy" == "syncing" ] && glyph=$(ui_yellow "$UI_DOT_WARN")
+            [ "$p" == "0" ]       && glyph=$(ui_red "$UI_DOT_WARN")
         else
-            st='stopped'; glyph="$(ui_yellow "$UI_DOT_OFF")"; stopped=$((stopped + 1))
+            st='stopped'; glyph=$(ui_dim "$UI_DOT_OFF"); stopped=$((stopped + 1))
         fi
-        printf '  %-13s %-14s %s\n' "$chain" "$st" "$glyph"
+        printf '  %-12s %-9s %-13s %-6s %s\n' "$chain" "$st" "$h" "$p" "$glyph"
     done
-    printf '  %s\n' '----------------------------------------'
+    printf '  %s\n' '-------------------------------------------------------'
     printf '  %s\n\n' "$(ui_dim "$total chains, $running running, $stopped stopped")"
 }
 
-# render_pretty <chain>: health-first verdict banner, then the full status.
+# render_pretty <chain>: health-first verdict + key facts, then the full status.
 render_pretty()
 {
-    local chain=$1 glyph word
+    local chain=$1 glyph word h p sy rw
     if ! "${chain}_installed" 2>/dev/null; then
-        glyph=$(ui_dim "$UI_DOT_OFF"); word=$(ui_dim 'NOT INSTALLED')
-    elif chain_running "$chain"; then
-        glyph=$(ui_green "$UI_DOT_OK"); word=$(ui_green 'RUNNING')
-    else
-        glyph=$(ui_yellow "$UI_DOT_OFF"); word=$(ui_yellow 'STOPPED')
+        printf '\n  %s  %s  %s\n\n' "$(ui_dim "$UI_DOT_OFF")" "$(ui_bold "$chain")" "$(ui_dim 'NOT INSTALLED')"
+        return
     fi
-    printf '\n  %s  %s  %s\n\n' "$glyph" "$(ui_bold "$chain")" "$word"
+    if ! chain_running "$chain"; then
+        printf '\n  %s  %s  %s\n\n' "$(ui_yellow "$UI_DOT_OFF")" "$(ui_bold "$chain")" "$(ui_yellow 'STOPPED')"
+        "${chain}_status"; return
+    fi
+    h=$(chain_height "$chain" 2>/dev/null)
+    p=$(chain_peers  "$chain" 2>/dev/null)
+    sy=$(chain_synced "$chain" 2>/dev/null)
+    glyph=$(ui_green "$UI_DOT_OK"); word=$(ui_green 'HEALTHY')
+    [ "$sy" == "syncing" ]               && { glyph=$(ui_yellow "$UI_DOT_WARN"); word=$(ui_yellow 'SYNCING'); }
+    [ -n "$p" ] && [ "$p" == "0" ]       && { glyph=$(ui_red "$UI_DOT_WARN");    word=$(ui_red 'NO PEERS'); }
+    printf '\n  %s  %s  %s\n' "$glyph" "$(ui_bold "$chain")" "$word"
+    [ -n "$h" ] && printf '  height   %s\n' "$h"
+    [ -n "$p" ] && printf '  peers    %s\n' "$p"
+    case "$chain" in
+        esc|eco|pgp|pg|eid)
+            rw=$(evm_reward_status "$chain" 2>/dev/null)
+            case "$rw" in
+                hot)   printf '  reward   %s\n' "$(ui_red 'HOT WALLET - set a cold miner address')" ;;
+                unset) printf '  reward   %s\n' "$(ui_yellow 'not set')" ;;
+                cold)  printf '  reward   %s\n' "$(ui_green 'cold')" ;;
+            esac ;;
+    esac
+    echo
     "${chain}_status"
+}
+
+# chain_health_json <chain> / render_json_one / render_json_all : machine-readable
+chain_health_json()
+{
+    local chain=$1 inst=false run=false h='' p='' sy='' rw=''
+    "${chain}_installed" 2>/dev/null && inst=true
+    if [ "$inst" == true ] && chain_running "$chain"; then
+        run=true
+        h=$(chain_height "$chain" 2>/dev/null)
+        p=$(chain_peers  "$chain" 2>/dev/null)
+        sy=$(chain_synced "$chain" 2>/dev/null)
+        case "$chain" in esc|eco|pgp|pg|eid) rw=$(evm_reward_status "$chain" 2>/dev/null) ;; esac
+    fi
+    jq -n --arg chain "$chain" --argjson installed "$inst" --argjson running "$run" \
+          --arg height "$h" --arg peers "$p" --arg sync "$sy" --arg reward "$rw" \
+        '{chain:$chain, installed:$installed, running:$running,
+          height:(if $height=="" then null else ($height|tonumber) end),
+          peers:(if $peers=="" then null else ($peers|tonumber) end),
+          sync:(if $sync=="" then null else $sync end),
+          reward:(if $reward=="" then null else $reward end)}'
+}
+render_json_one() { chain_health_json "$1"; }
+render_json_all()
+{
+    local chain first=1
+    printf '['
+    for chain in $(profile_chains); do
+        [ $first -eq 1 ] || printf ','
+        first=0
+        chain_health_json "$chain"
+    done
+    printf ']\n'
 }
 
 # profile_prompt_if_unset: ask main-chain-only vs full stack the first time.
@@ -5812,7 +5917,7 @@ elif [ "$1" == "profile" ]; then
     profile "$2" "$3"
     exit
 elif [ "$1" == "summary" ]; then
-    render_summary
+    if [ "$2" == "--json" ]; then render_json_all; else render_summary; fi
     exit
 elif [ "$1" == "set_path" ]; then
     set_path
@@ -5905,6 +6010,10 @@ else
 
     if [ "$COMMAND" == "status" ] && [ "$1" == "--pretty" ]; then
         render_pretty $CHAIN_NAME
+        exit
+    fi
+    if [ "$COMMAND" == "status" ] && [ "$1" == "--json" ]; then
+        render_json_one $CHAIN_NAME
         exit
     fi
 

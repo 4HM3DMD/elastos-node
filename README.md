@@ -83,10 +83,11 @@ For remote monitoring, front the node with an SSH tunnel or VPN rather than expo
 ./node.sh                       # usage
 ./node.sh help | -h | --help    # usage
 ./node.sh profile [set <p>]     # show / set deployment profile (mainchain | full)
-./node.sh summary               # one-row-per-chain health view for the active profile
+./node.sh summary [--json]      # health view for the active profile (height, peers, sync)
 ./node.sh init|start|stop|status|update    # act on the active profile
 ./node.sh <chain> <command>     # act on a single chain: ela, esc, eid, pg, *-oracle, arbiter
 ./node.sh <chain> status --pretty           # health-first status for one chain
+./node.sh <chain> status --json             # machine-readable status for one chain
 ./node.sh --profile <p> <cmd>   # override the profile for one command
 ./node.sh --no-color <cmd>      # disable color (also honors the NO_COLOR env var)
 ```
