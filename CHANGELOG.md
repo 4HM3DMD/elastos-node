@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.1 — Fix: no more running a command twice on first run
+
+- The **first** invocation of any command previously only selected the network, wrote `~/.config/elastos/node.json`, and **exited** — forcing you to re-run (e.g. `init` had to be run twice). It now writes the config and **continues with the requested command in one shot**.
+
 ## v0.7.0 — Post-spawn check for oracles
 
 ### Accuracy

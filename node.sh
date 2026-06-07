@@ -513,8 +513,9 @@ load_config()
     local CONFIG_FILE=~/.config/elastos/${SCRIPT_NAME%.*}.json
 
     if [ ! -f $CONFIG_FILE ]; then
+        # First run: choose the network and write the config, then CONTINUE with the
+        # requested command instead of exiting (no more running the command twice).
         init_config
-        exit
     fi
 
     export CHAIN_TYPE=$(cat $CONFIG_FILE | jq -r '.["chain-type"]')
