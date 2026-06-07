@@ -5767,24 +5767,10 @@ arbiter_init()
         echo_error "eid-oracle not initialized"
         return
     fi
-    #linda添加ECO判断
-     if [ ! -f $SCRIPT_PATH/eco-oracle/.init ]; then
-        echo_error "eco-oracle not initialized"
-        return
-    fi
-    #linda添加
-    #linda添加PGP判断
-     if [ ! -f $SCRIPT_PATH/pgp-oracle/.init ]; then
-        echo_error "pgp-oracle not initialized"
-        return
-    fi
-    #linda添加
-    #linda添加PG判断
     if [ ! -f $SCRIPT_PATH/pg-oracle/.init ]; then
         echo_error "pg-oracle not initialized"
         return
     fi
-    #linda添加
 
 
     local ELA_CONFIG=${SCRIPT_PATH}/ela/config.json
@@ -5847,21 +5833,6 @@ arbiter_init()
         "SupportQuickRecharge": true,
         "SupportInvalidDeposit": true,
         "SupportInvalidWithdraw": true,
-        "PowChain": false
-      },
-      {
-        "Name": "ECO",
-        "Rpc": {
-          "IpAddress": "127.0.0.1",
-          "HttpJsonPort": 20652
-        },
-        "SyncStartHeight": 0,
-        "ExchangeRate": 1,
-        "GenesisBlock": "3043bcc03c90a37a292a4357ee972bc392b143e75e1b79205e113688e3bd071b",
-        "SupportQuickRecharge": true,
-        "SupportInvalidDeposit": true,
-        "SupportInvalidWithdraw": true,
-        "SupportNFT": false,
         "PowChain": false
       },
       {
@@ -5930,21 +5901,6 @@ EOF
         "SupportQuickRecharge": true,
         "SupportInvalidDeposit": true,
         "SupportInvalidWithdraw": true,
-        "PowChain": false
-      },
-      {
-        "Name": "ECO",
-        "Rpc": {
-          "IpAddress": "127.0.0.1",
-          "HttpJsonPort": 20652
-        },
-        "SyncStartHeight": 0,
-        "ExchangeRate": 1,
-        "GenesisBlock": "02820c5adc8ee4fb77aad842ac05d95ed8b1041d80c03ba79f8f11c4af60d87c",
-        "SupportQuickRecharge": true,
-        "SupportInvalidDeposit": true,
-        "SupportInvalidWithdraw": true,
-        "SupportNFT": false,
         "PowChain": false
       },
       {

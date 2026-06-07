@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.8.1 — Fix: arbiter init failed on the removed ECO chain
+
+- `arbiter_init` still hard-required `eco-oracle` (and `pgp-oracle`) to be initialized, and listed **ECO** in its cross-chain `SideNodeList` — so on a full-stack node the arbiter step failed with `ERROR: eco-oracle not initialized` even though every other chain set up fine. The ECO/PGP removal is now complete in the arbiter path (preflight checks + both the testnet and mainnet `SideNodeList` configs now contain only ESC / EID / PG).
+
 ## v0.8.0 — Turnkey setup (deps, swap, firewall, autostart)
 
 ### Onboarding
