@@ -72,6 +72,8 @@ This fork closes the most dangerous default in the upstream runner and tightens 
 - **No remotely-unlockable signing account.** EVM mining nodes no longer start with `--unlock` / `--allow-insecure-unlock`. Block sealing is unaffected — consensus signs with the dedicated PBFT/ELA keystore, not the EVM account.
 - **Reduced RPC API surface** — `personal`, `db`, `miner`, and `admin` are no longer exposed.
 - **Status can't crash the node.** The main-chain status no longer issues the reward query that panics a syncing daemon; it reports `N/A` until the node is fully synced.
+- **Mandatory cold reward address.** A mining chain refuses to start unless a valid cold `miner_address` is set, so rewards never accrue to the node's local account.
+- **Verified, self-contained updates.** `update_script` pulls *this* repo, checks a published SHA-256, and syntax-checks the download before installing — so an update can't silently revert the hardening.
 
 For remote monitoring, front the node with an SSH tunnel or VPN rather than exposing the RPC port. See [`SECURITY.md`](SECURITY.md).
 
@@ -81,9 +83,12 @@ For remote monitoring, front the node with an SSH tunnel or VPN rather than expo
 ./node.sh                       # usage
 ./node.sh help | -h | --help    # usage
 ./node.sh profile [set <p>]     # show / set deployment profile (mainchain | full)
+./node.sh summary               # one-row-per-chain health view for the active profile
 ./node.sh init|start|stop|status|update    # act on the active profile
 ./node.sh <chain> <command>     # act on a single chain: ela, esc, eid, pg, *-oracle, arbiter
+./node.sh <chain> status --pretty           # health-first status for one chain
 ./node.sh --profile <p> <cmd>   # override the profile for one command
+./node.sh --no-color <cmd>      # disable color (also honors the NO_COLOR env var)
 ```
 
 ## Credits

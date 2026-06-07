@@ -39,24 +39,170 @@ echo_ok()
     fi
 }
 
+#
+# UI: color + status glyphs, honoring NO_COLOR, --no-color, and non-TTY output.
+#
+UI_DOT_OK=$'\xe2\x97\x8f'      # filled circle  (running / healthy)
+UI_DOT_OFF=$'\xe2\x97\x8b'     # empty circle   (stopped)
+UI_DOT_WARN=$'\xe2\x97\x90'    # half circle    (attention)
+
+ui_use_color()
+{
+    [ -n "$NO_COLOR" ]    && return 1
+    [ -n "$UI_NO_COLOR" ] && return 1
+    [ -t 1 ]              || return 1
+    return 0
+}
+ui_c()  { if ui_use_color; then printf '\033[%sm%s\033[0m' "$1" "$2"; else printf '%s' "$2"; fi; }
+ui_green()  { ui_c '1;32' "$1"; }
+ui_yellow() { ui_c '1;33' "$1"; }
+ui_red()    { ui_c '1;31' "$1"; }
+ui_dim()    { ui_c '2'    "$1"; }
+ui_bold()   { ui_c '1'    "$1"; }
+
+# chain_running <chain>: true if the chain's process is alive (no RPC, cannot hang).
+chain_running()
+{
+    case "$1" in
+        ela)        pgrep -x ela     >/dev/null 2>&1 ;;
+        arbiter)    pgrep -x arbiter >/dev/null 2>&1 ;;
+        esc|eco|pgp|pg|eid)
+                    pgrep -f "^\./$1 .*--rpc " >/dev/null 2>&1 ;;
+        esc-oracle) pgrep -fx 'node crosschain_oracle.js' >/dev/null 2>&1 ;;
+        eid-oracle) pgrep -fx 'node crosschain_eid.js'    >/dev/null 2>&1 ;;
+        eco-oracle) pgrep -fx 'node crosschain_eco.js'    >/dev/null 2>&1 ;;
+        pgp-oracle) pgrep -fx 'node crosschain_pgp.js'    >/dev/null 2>&1 ;;
+        pg-oracle)  pgrep -fx 'node crosschain_pg.js'     >/dev/null 2>&1 ;;
+        *)          return 1 ;;
+    esac
+}
+
+# did_you_mean <input> <valid words...>: print a suggestion for a near miss.
+did_you_mean()
+{
+    local input=$1; shift
+    local best= cand
+    for cand in $*; do case "$cand" in "$input"*) best=$cand; break ;; esac; done
+    [ -z "$best" ] && for cand in $*; do case "$cand" in *"$input"*) best=$cand; break ;; esac; done
+    [ -n "$best" ] && echo "  Did you mean '$best'?"
+}
+
+# render_summary: one row per chain in the active profile (the fleet glance).
+render_summary()
+{
+    local prof; prof=$(get_profile)
+    local total=0 running=0 stopped=0 chain st glyph
+    echo
+    printf '  %s   profile: %s\n' "$(ui_bold 'Elastos node')" "$prof"
+    printf '  %-13s %-14s %s\n' 'CHAIN' 'STATE' 'HEALTH'
+    printf '  %s\n' '----------------------------------------'
+    for chain in $(profile_chains); do
+        total=$((total + 1))
+        if ! "${chain}_installed" 2>/dev/null; then
+            st='not installed'; glyph=$(ui_dim "$UI_DOT_OFF")
+        elif chain_running "$chain"; then
+            st='running'; glyph="$(ui_green "$UI_DOT_OK")"; running=$((running + 1))
+        else
+            st='stopped'; glyph="$(ui_yellow "$UI_DOT_OFF")"; stopped=$((stopped + 1))
+        fi
+        printf '  %-13s %-14s %s\n' "$chain" "$st" "$glyph"
+    done
+    printf '  %s\n' '----------------------------------------'
+    printf '  %s\n\n' "$(ui_dim "$total chains, $running running, $stopped stopped")"
+}
+
+# render_pretty <chain>: health-first verdict banner, then the full status.
+render_pretty()
+{
+    local chain=$1 glyph word
+    if ! "${chain}_installed" 2>/dev/null; then
+        glyph=$(ui_dim "$UI_DOT_OFF"); word=$(ui_dim 'NOT INSTALLED')
+    elif chain_running "$chain"; then
+        glyph=$(ui_green "$UI_DOT_OK"); word=$(ui_green 'RUNNING')
+    else
+        glyph=$(ui_yellow "$UI_DOT_OFF"); word=$(ui_yellow 'STOPPED')
+    fi
+    printf '\n  %s  %s  %s\n\n' "$glyph" "$(ui_bold "$chain")" "$word"
+    "${chain}_status"
+}
+
+# profile_prompt_if_unset: ask main-chain-only vs full stack the first time.
+profile_prompt_if_unset()
+{
+    [ -n "$PROFILE_OVERRIDE" ] && return 0
+    [ -f "$PROFILE_FILE" ]     && return 0
+    echo "What will this node run?"
+    echo "  [1] Main chain only        (ELA)"
+    echo "  [2] Full stack             (ELA + side chains + oracles + arbiter)"
+    local sel
+    read -p '? Your option: [2] ' sel
+    case "$sel" in
+        1) set_profile mainchain >/dev/null ;;
+        *) set_profile full      >/dev/null ;;
+    esac
+    echo
+}
+
 update_script()
 {
-    local SCRIPT_URL=https://raw.githubusercontent.com/elastos/Elastos.Node/master/build/skeleton/node.sh
+    # The fork updates ITSELF (not upstream), so the hardening is never reverted.
+    local SCRIPT_URL=https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/node.sh
+    local SHA_URL=https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/node.sh.sha256
 
     local SCRIPT=$SCRIPT_PATH/$(basename $BASH_SOURCE)
     local SCRIPT_TMP=$SCRIPT.tmp
 
     echo "Downloading $SCRIPT_URL..."
-    curl -# -o $SCRIPT_TMP $SCRIPT_URL
-    if [ "$?" != "0" ]; then
-        echo_error "curl failed"
-        return
+    if ! curl -fsSL -o "$SCRIPT_TMP" "$SCRIPT_URL"; then
+        echo_error "download failed"
+        rm -f "$SCRIPT_TMP"
+        return 1
     fi
 
-    mv $SCRIPT_TMP $SCRIPT
-    chmod a+x $SCRIPT
+    # Integrity: if a published checksum exists, the download MUST match it.
+    local WANT=$(curl -fsSL "$SHA_URL" 2>/dev/null | awk '{print $1}')
+    if [ -n "$WANT" ]; then
+        local GOT=$(shasum -a 256 "$SCRIPT_TMP" 2>/dev/null | awk '{print $1}')
+        if [ "$WANT" != "$GOT" ]; then
+            echo_error "checksum mismatch - refusing to update (want $WANT, got $GOT)"
+            rm -f "$SCRIPT_TMP"
+            return 1
+        fi
+        echo_ok "checksum verified"
+    else
+        echo_warn "no published checksum found - updating without integrity check"
+    fi
 
+    # Never install a script that does not parse.
+    if ! bash -n "$SCRIPT_TMP"; then
+        echo_error "downloaded script failed syntax check - refusing to update"
+        rm -f "$SCRIPT_TMP"
+        return 1
+    fi
+
+    mv "$SCRIPT_TMP" "$SCRIPT"
+    chmod a+x "$SCRIPT"
     echo_ok "$SCRIPT updated"
+}
+# require_cold_miner <chain>: when a chain is configured to mine (its keystore
+# password file exists), refuse to start unless a valid cold reward address is set,
+# so block rewards can never fall back to this node's local (hot) account.
+require_cold_miner()
+{
+    local chain=$1
+    local pwfile=~/.config/elastos/${chain}.txt
+    local addrfile=$SCRIPT_PATH/${chain}/data/miner_address.txt
+    [ -f "$pwfile" ] || return 0   # not a mining node; nothing to enforce
+    local addr=
+    [ -f "$addrfile" ] && addr=$(tr -d '[:space:]' < "$addrfile" 2>/dev/null)
+    if ! echo "$addr" | grep -qiE '^0x[0-9a-f]{40}$'; then
+        echo_error "$chain: refusing to mine without a cold reward address"
+        echo "  Set one first:"
+        echo "    echo 0xYOURCOLDADDRESS > $addrfile && chmod 600 $addrfile"
+        echo "  (Mining without it would credit rewards to this node's local account.)"
+        return 1
+    fi
+    return 0
 }
 
 set_env()
@@ -812,6 +958,7 @@ all_update()
 
 all_init()
 {
+    profile_prompt_if_unset
     local chain
     for chain in $(profile_chains); do
         "${chain}_init"
@@ -2170,6 +2317,7 @@ esc_start()
     mkdir -p $SCRIPT_PATH/esc/logs/
 
     if [ -f ~/.config/elastos/esc.txt ]; then
+        require_cold_miner esc || return
         if [ -f $SCRIPT_PATH/esc/data/miner_address.txt ]; then
             local ESC_OPTS="$ESC_OPTS --pbft.miner.address $SCRIPT_PATH/esc/data/miner_address.txt"
         fi
@@ -2251,6 +2399,7 @@ eco_start()
     mkdir -p $SCRIPT_PATH/eco/logs/
 
     if [ -f ~/.config/elastos/eco.txt ]; then
+        require_cold_miner eco || return
         if [ -f $SCRIPT_PATH/eco/data/miner_address.txt ]; then
             local ECO_OPTS="$ECO_OPTS --pbft.miner.address $SCRIPT_PATH/eco/data/miner_address.txt"
         fi
@@ -2321,6 +2470,7 @@ pgp_start()
     mkdir -p $SCRIPT_PATH/pgp/logs/
 
     if [ -f ~/.config/elastos/pgp.txt ]; then
+        require_cold_miner pgp || return
         if [ -f $SCRIPT_PATH/pgp/data/miner_address.txt ]; then
             local PGP_OPTS="$PGP_OPTS --pbft.miner.address $SCRIPT_PATH/pgp/data/miner_address.txt"
         fi
@@ -2392,6 +2542,7 @@ pg_start()
     mkdir -p $SCRIPT_PATH/pg/logs/
 
     if [ -f ~/.config/elastos/pg.txt ]; then
+        require_cold_miner pg || return
         if [ -f $SCRIPT_PATH/pg/data/miner_address.txt ]; then
             local PG_OPTS="$PG_OPTS --pbft.miner.address $SCRIPT_PATH/pg/data/miner_address.txt"
         fi
@@ -4400,6 +4551,7 @@ EOF
     mkdir -p $SCRIPT_PATH/eid/logs/
 
     if [ -f ~/.config/elastos/eid.txt ]; then
+        require_cold_miner eid || return
         if [ -f $SCRIPT_PATH/eid/data/miner_address.txt ]; then
             local EID_OPTS="$EID_OPTS --pbft.miner.address $SCRIPT_PATH/eid/data/miner_address.txt"
         fi
@@ -5640,10 +5792,14 @@ load_config
 
 # global flag: --profile <mainchain|full> overrides the persisted profile for this run
 PROFILE_OVERRIDE=
-if [ "$1" == "--profile" ]; then
-    PROFILE_OVERRIDE="$2"
-    shift 2
-fi
+UI_NO_COLOR=
+while true; do
+    case "$1" in
+        --profile)  PROFILE_OVERRIDE="$2"; shift 2 ;;
+        --no-color) UI_NO_COLOR=1; shift ;;
+        *) break ;;
+    esac
+done
 
 # script commands
 if [ "$1" == "" ]; then
@@ -5654,6 +5810,9 @@ elif [ "$1" == "help" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     exit
 elif [ "$1" == "profile" ]; then
     profile "$2" "$3"
+    exit
+elif [ "$1" == "summary" ]; then
+    render_summary
     exit
 elif [ "$1" == "set_path" ]; then
     set_path
@@ -5695,7 +5854,10 @@ else
        [ "$1" != "pg"         ] && \
        [ "$1" != "pg-oracle"  ] && \
        [ "$1" != "arbiter"    ]; then
-        echo_error "do not support chain: $1"
+        echo_error "unknown chain: $1"
+        echo "  valid: ela esc eid pg esc-oracle eid-oracle pg-oracle arbiter"
+        echo "  see also: profile, summary, help"
+        did_you_mean "$1" "ela esc eid pg esc-oracle eid-oracle pg-oracle arbiter profile summary help"
         exit
     fi
     CHAIN_NAME=$1
@@ -5729,7 +5891,9 @@ else
          [ "$2" == "remove_log"      ]; then
         COMMAND=$2
     else
-        echo_error "do not support command: $2"
+        echo_error "unknown command: $2"
+        echo "  valid: start stop status init update client jsonrpc send"
+        did_you_mean "$2" "start stop status init update client jsonrpc send register_bpos activate_bpos unregister_bpos"
         exit
     fi
     # command aliases
@@ -5738,6 +5902,11 @@ else
     fi
 
     shift 2
+
+    if [ "$COMMAND" == "status" ] && [ "$1" == "--pretty" ]; then
+        render_pretty $CHAIN_NAME
+        exit
+    fi
 
     ${CHAIN_NAME}_${COMMAND} "$@"
 fi
