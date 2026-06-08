@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.6 — `status` is the familiar labeled view again, minus the clutter
+
+Operator feedback: the compact cards lost the readable, **labeled** layout of the classic status. v0.9.6 brings that back — `node.sh status` now shows each chain's own status block, **one labeled field per line, aligned**, with only the noise removed:
+
+- **Kept** (labeled, like before): version · state, `Address`, `Public Key`, `Height`, `#Peers`, `Uptime`, `RAM`, `Disk`, and the full governance block — `BPoS Name / State / Staked / Votes / Rewards`, `CRC Name / State`.
+- **Removed** (the clutter): `Balance`, `PID`, `#Files`, `#TCP`, the TCP/UDP port lists.
+- One blank line between chains. `node.sh <chain> status --verbose` still shows the complete dump (everything, including the removed fields); `node.sh summary` / `ps` is still the one-row glance.
+
 ## v0.9.5 — Status cards now show the council info (and read cleaner)
 
 The card is now built from each chain's own status, so it keeps the **important** fields and drops only the noise:
