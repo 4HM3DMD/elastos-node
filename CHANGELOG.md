@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.8.2 — Modern command layer (docker/gh-style verbs)
+
+All additive — **every old command still works byte-for-byte**; the modern verbs are aliases over the same dispatch.
+
+### Global
+- `up` (= `start`), `down` (= `stop`), `ps` (= `summary`)
+- `restart` — restart the profile, one chain at a time
+- `logs [<chain>] [-f]` — tail a chain's most recent log (follow with `-f`)
+- `version` / `--version` / `-v` — fork + chain versions
+- `reward [set <0x…>]` — show, or set the cold miner address for **all side chains at once**
+- `uninstall` — stop everything + remove the install/config (backs up the keystore first; requires typing `DELETE`)
+
+### Per-chain (`node.sh <chain> <verb>`)
+- `up` / `down` / `restart` / `logs [-f]` / `rpc` (= `jsonrpc`) / `version`
+- kebab-case accepted everywhere (`node.sh ela register-bpos` == `register_bpos`)
+
 ## v0.8.1 — Fix: arbiter init failed on the removed ECO chain
 
 - `arbiter_init` still hard-required `eco-oracle` (and `pgp-oracle`) to be initialized, and listed **ECO** in its cross-chain `SideNodeList` — so on a full-stack node the arbiter step failed with `ERROR: eco-oracle not initialized` even though every other chain set up fine. The ECO/PGP removal is now complete in the arbiter path (preflight checks + both the testnet and mainnet `SideNodeList` configs now contain only ESC / EID / PG).

@@ -87,6 +87,16 @@ For remote monitoring, front the node with an SSH tunnel or VPN rather than expo
 ```
 ./node.sh                       # usage
 ./node.sh help | -h | --help    # usage
+
+# modern verbs (aliases — old commands still work):
+./node.sh up | down | restart   # start / stop / restart the profile
+./node.sh ps                    # status table (= summary)
+./node.sh logs [<chain>] [-f]   # tail a chain's log (follow with -f)
+./node.sh version | -v          # fork + chain versions
+./node.sh reward set 0x…        # set the cold miner address for all side chains
+./node.sh uninstall             # stop + remove install/config (keystore backed up)
+./node.sh <chain> up|down|restart|logs|rpc|version   # per-chain modern verbs
+
 ./node.sh setup                 # turnkey: deps + swap + firewall + autostart + init
 ./node.sh firewall              # open peer/consensus ports for the profile (RPC stays loopback)
 ./node.sh profile [set <p>]     # show / set deployment profile (mainchain | full)

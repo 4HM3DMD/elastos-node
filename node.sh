@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# elastos-node - hardened fork of elastos/Elastos.Node
+ELASTOS_NODE_VERSION="0.8.2"
+
 #
 # utility
 #
@@ -1163,6 +1166,112 @@ setup()
     echo "  3. check:            $SCRIPT_NAME summary"
     echo "  4. after full sync, get the 02/03... public key to register in Essentials:"
     echo "       $SCRIPT_NAME ela status"
+}
+
+# chain_restart <chain>: stop, wait for exit, start.
+chain_restart()
+{
+    "${1}_stop"
+    local i
+    for i in 1 2 3 4 5; do chain_running "$1" || break; sleep 1; done
+    "${1}_start"
+}
+
+# all_restart: restart every chain in the active profile, one at a time.
+all_restart()
+{
+    local chain
+    for chain in $(profile_chains); do
+        "${chain}_installed" 2>/dev/null && chain_restart "$chain"
+    done
+}
+
+# chain_logs <chain> [-f]: tail the chain's most recent log (-f to follow).
+chain_logs()
+{
+    local chain=$1 follow= log
+    { [ "$2" == "-f" ] || [ "$2" == "--follow" ]; } && follow=1
+    log=$(ls -t "$SCRIPT_PATH/$chain/logs/"*.log "$SCRIPT_PATH/$chain/elastos/logs/node/"*.log 2>/dev/null | head -1)
+    if [ -z "$log" ]; then echo_error "no logs found for $chain yet"; return 1; fi
+    ui_dim "==> $log <=="; echo
+    if [ -n "$follow" ]; then tail -n 40 -f "$log"; else tail -n 60 "$log"; fi
+}
+
+# logs_cmd [<chain>] [-f]: global `logs`, defaults to the mainchain.
+logs_cmd()
+{
+    local chain=$1 flag=$2
+    if [ -z "$chain" ] || [ "$chain" == "-f" ] || [ "$chain" == "--follow" ]; then
+        flag=$chain; chain=ela
+    fi
+    chain_logs "$chain" "$flag"
+}
+
+# version_cmd: fork version + each installed chain binary version.
+version_cmd()
+{
+    echo "elastos-node $(ui_bold "v$ELASTOS_NODE_VERSION")  (hardened fork of elastos/Elastos.Node)"
+    ui_dim "node.sh sha:$SCRIPT_SHA1   profile:$(get_profile)"; echo
+    local chain
+    for chain in $(profile_chains); do
+        case "$chain" in *-oracle|arbiter) continue ;; esac
+        "${chain}_installed" 2>/dev/null && echo "  $("${chain}_ver" 2>/dev/null)"
+    done
+}
+
+# reward_cmd [set <0x..>]: show or set the cold miner reward address (EVM side chains).
+reward_cmd()
+{
+    local chain addr
+    if [ "$1" != "set" ]; then
+        echo "Cold reward address per side chain:"
+        for chain in esc eid pg; do
+            if [ -f "$SCRIPT_PATH/$chain/data/miner_address.txt" ]; then
+                echo "  $chain  $(cat "$SCRIPT_PATH/$chain/data/miner_address.txt")"
+            else
+                echo "  $chain  $(ui_yellow '(unset)')"
+            fi
+        done
+        echo; echo "Set for all side chains:  $SCRIPT_NAME reward set 0xYOURCOLDADDRESS"
+        return
+    fi
+    addr=$2
+    if ! echo "$addr" | grep -qiE '^0x[0-9a-f]{40}$'; then
+        echo_error "invalid address: '$addr' (expected 0x + 40 hex)"; return 1
+    fi
+    for chain in esc eid pg; do
+        mkdir -p "$SCRIPT_PATH/$chain/data"
+        echo "$addr" > "$SCRIPT_PATH/$chain/data/miner_address.txt"
+        chmod 600 "$SCRIPT_PATH/$chain/data/miner_address.txt"
+        echo_ok "$chain reward -> $addr"
+    done
+    echo "Restart the side chains to apply:  $SCRIPT_NAME esc restart   (etc.)"
+}
+
+# uninstall_cmd: stop everything and remove the install + config (destructive).
+uninstall_cmd()
+{
+    local ANSWER bk c
+    ui_red "This stops all chains and DELETES the install + config."; echo
+    echo "  removes: $SCRIPT_PATH/{ela,esc,eid,pg,*-oracle,arbiter,extern} and ~/.config/elastos"
+    echo "  the ELA keystore is backed up to ~/ first; chain DATA is gone."
+    read -p "Type DELETE to confirm: " ANSWER
+    if [ "$ANSWER" != "DELETE" ]; then echo "Aborted."; return 1; fi
+    if [ -f "$SCRIPT_PATH/ela/keystore.dat" ]; then
+        bk=~/keystore.dat.bak.$(date +%s)
+        cp -p "$SCRIPT_PATH/ela/keystore.dat" "$bk" && echo_ok "keystore backed up -> $bk"
+    fi
+    all_stop 2>/dev/null
+    pkill -x ela 2>/dev/null; pkill -x arbiter 2>/dev/null
+    for c in esc eco pgp pg eid; do pkill -f "^\./$c .*--rpc " 2>/dev/null; done
+    pkill -f 'node crosschain_' 2>/dev/null
+    crontab -l 2>/dev/null | grep -v 'node.sh' | crontab - 2>/dev/null
+    rm -rf "$SCRIPT_PATH"/ela "$SCRIPT_PATH"/esc "$SCRIPT_PATH"/eid "$SCRIPT_PATH"/pg \
+           "$SCRIPT_PATH"/eco "$SCRIPT_PATH"/pgp \
+           "$SCRIPT_PATH"/esc-oracle "$SCRIPT_PATH"/eid-oracle "$SCRIPT_PATH"/eco-oracle \
+           "$SCRIPT_PATH"/pgp-oracle "$SCRIPT_PATH"/pg-oracle "$SCRIPT_PATH"/arbiter \
+           "$SCRIPT_PATH"/extern "$SCRIPT_PATH"/.node-upload ~/.config/elastos
+    echo_ok "uninstalled (node.sh kept; remove with: rm $SCRIPT_PATH/$SCRIPT_NAME)"
 }
 
 all_start()
@@ -6013,6 +6122,13 @@ while true; do
     esac
 done
 
+# modern verb aliases -> canonical command (old commands unchanged)
+case "$1" in
+    up)   set -- start "${@:2}" ;;
+    down) set -- stop "${@:2}" ;;
+    ps)   set -- summary "${@:2}" ;;
+esac
+
 # script commands
 if [ "$1" == "" ]; then
     usage
@@ -6029,6 +6145,21 @@ elif [ "$1" == "summary" ]; then
 elif [ "$1" == "health" ]; then
     render_health_all
     exit $?
+elif [ "$1" == "restart" ]; then
+    all_restart
+    exit
+elif [ "$1" == "logs" ]; then
+    logs_cmd "$2" "$3"
+    exit
+elif [ "$1" == "version" ] || [ "$1" == "--version" ] || [ "$1" == "-v" ]; then
+    version_cmd
+    exit
+elif [ "$1" == "reward" ]; then
+    reward_cmd "$2" "$3"
+    exit
+elif [ "$1" == "uninstall" ]; then
+    uninstall_cmd
+    exit
 elif [ "$1" == "setup" ]; then
     setup
     exit
@@ -6084,6 +6215,17 @@ else
     CHAIN_NAME=$1
     CHAIN_NAME_U=$(echo $CHAIN_NAME | tr "[:lower:]" "[:upper:]")
 
+    # modern per-chain verbs + kebab-case -> canonical command (old commands unchanged)
+    _CMD=$2
+    case "$_CMD" in
+        up)   _CMD=start ;;
+        down) _CMD=stop ;;
+        ps)   _CMD=status ;;
+        rpc)  _CMD=jsonrpc ;;
+    esac
+    _CMD=${_CMD//-/_}
+    if [ -n "$2" ] && [ "$_CMD" != "$2" ]; then set -- "$1" "$_CMD" "${@:3}"; fi
+
     if [ "$2" == "" ]; then
         # no command specified
         COMMAND=usage
@@ -6091,6 +6233,9 @@ else
          [ "$2" == "stop"    ] || \
          [ "$2" == "status"  ] || \
          [ "$2" == "health"  ] || \
+         [ "$2" == "restart" ] || \
+         [ "$2" == "logs"    ] || \
+         [ "$2" == "version" ] || \
          [ "$2" == "client"  ] || \
          [ "$2" == "jsonrpc" ] || \
          [ "$2" == "update"  ] || [ "$2" == "upgrade" ] || \
@@ -6136,6 +6281,18 @@ else
     if [ "$COMMAND" == "health" ]; then
         render_health $CHAIN_NAME
         exit $?
+    fi
+    if [ "$COMMAND" == "restart" ]; then
+        chain_restart $CHAIN_NAME
+        exit $?
+    fi
+    if [ "$COMMAND" == "logs" ]; then
+        chain_logs $CHAIN_NAME "$@"
+        exit $?
+    fi
+    if [ "$COMMAND" == "version" ]; then
+        "${CHAIN_NAME}_ver" 2>/dev/null || echo_error "no version for $CHAIN_NAME"
+        exit
     fi
 
     ${CHAIN_NAME}_${COMMAND} "$@"
