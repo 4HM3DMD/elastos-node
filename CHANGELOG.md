@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.1 — Auto-fetch the ELA `sponsors` file (no more mainchain stall)
+
+- The ELA mainchain needs a `sponsors` file (a `height → sponsor` lookup) to validate blocks past the RecordSponsor fork (~block 1.8M). The official runner never downloads it, so fresh nodes sync fine until ~1.8M and then **stall** with `sponsors file not exist!`. `ela_start` now **fetches it automatically** when missing — mainnet only, from the matching binary version with a `v0.9.9` fallback, with a clear warning if the download fails. Self-healing and one-time (~28 MB).
+
 ## v0.9.0 — Zero-downtime hardening apply (finishes the UX/migration roadmap)
 
 - **`node.sh migrate --apply [--yes]`** — applies the hardened RPC binding with **near-zero downtime**:

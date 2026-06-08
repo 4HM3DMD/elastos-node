@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="0.9.0"
+ELASTOS_NODE_VERSION="0.9.1"
 
 #
 # utility
@@ -1567,6 +1567,32 @@ ela_usage()
     echo
 }
 
+# ensure_sponsors: the ELA mainchain needs a `sponsors` file (height->sponsor lookup)
+# to validate blocks past the RecordSponsor fork (~1.8M). Upstream never fetches it, so
+# fresh nodes stall with "sponsors file not exist!". Download it if missing (mainnet only).
+ensure_sponsors()
+{
+    [ "$CHAIN_TYPE" == "mainnet" ] || return 0
+    local f=$SCRIPT_PATH/ela/sponsors
+    [ -s "$f" ] && return 0
+    local pfx=https://download.elastos.io/elastos-ela ver v
+    ver=$(get_elastos_ver_latest "$pfx" 2>/dev/null)
+    echo "Fetching the ELA sponsors file (needed past block ~1.8M)..."
+    for v in "$ver" v0.9.9; do
+        [ -z "$v" ] && continue
+        if curl -fsSL "$pfx/elastos-ela-$v/sponsors" -o "$f.tmp" 2>/dev/null \
+           && [ -s "$f.tmp" ] && ! head -c 200 "$f.tmp" | grep -qi '<html'; then
+            mv "$f.tmp" "$f"
+            echo_ok "sponsors file installed ($v, $(wc -l < "$f") entries)"
+            return 0
+        fi
+    done
+    rm -f "$f.tmp"
+    echo_warn "could not fetch the sponsors file - the mainchain may stall past block ~1.8M"
+    echo_warn "fetch it manually:  curl -fsSL $pfx/elastos-ela-v0.9.9/sponsors -o $f"
+    return 1
+}
+
 ela_start()
 {
     if [ ! -f $SCRIPT_PATH/ela/ela ]; then
@@ -1579,6 +1605,8 @@ ela_start()
         ela_status
         return
     fi
+
+    ensure_sponsors
 
     echo "Starting ela..."
     cd $SCRIPT_PATH/ela
