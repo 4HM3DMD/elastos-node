@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="0.8.2"
+ELASTOS_NODE_VERSION="0.9.0"
 
 #
 # utility
@@ -1283,13 +1283,78 @@ uninstall_cmd()
     echo_ok "uninstalled (node.sh kept; remove with: rm $SCRIPT_PATH/$SCRIPT_NAME)"
 }
 
+# migrate_apply [--yes]: apply the hardened RPC binding with near-zero downtime.
+# Restarts ONLY stale side chains (esc/eid/pg), one at a time, verifying each comes
+# back on 127.0.0.1 before the next. The ELA mainchain is never restarted, so the
+# council producer keeps signing throughout. A single node cannot know fleet quorum -
+# coordinate across the council so only a few nodes restart a given chain at once.
+migrate_apply()
+{
+    local yes= chain pid cmd stale= skipped= ANSWER i ok
+    case "$1" in --yes|-y) yes=1 ;; esac
+
+    ui_bold "Apply hardening - staged restart of stale side chains"; echo
+    echo "  the ELA mainchain is NOT restarted; your consensus/producer stays online"
+    echo
+
+    for chain in esc eid pg; do
+        pid=$(pgrep -f "^\./$chain .*--rpc " 2>/dev/null | head -1)
+        [ -z "$pid" ] && continue
+        cmd=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
+        echo "$cmd" | grep -qE -- '0[.]0[.]0[.]0|--unlock ' || { echo_ok "$chain already hardened"; continue; }
+        if [ -f ~/.config/elastos/$chain.txt ] && ! require_cold_miner "$chain" >/dev/null 2>&1; then
+            echo "  $(ui_yellow '!') $chain: no cold reward address - SKIPPING (set: $SCRIPT_NAME reward set 0x..)"
+            skipped="$skipped $chain"; continue
+        fi
+        stale="$stale $chain"
+    done
+
+    if [ -z "$stale" ]; then
+        echo "Nothing to do - no stale side chain to restart."
+        [ -n "$skipped" ] && echo "  (skipped, no cold reward:$skipped)"
+        return 0
+    fi
+    echo "Will restart, one at a time:$stale"
+    if [ -z "$yes" ]; then
+        read -p "Proceed (Yes/No)? " ANSWER
+        case "$ANSWER" in Yes|yes|y) ;; *) echo "Aborted."; return 1 ;; esac
+    fi
+
+    for chain in $stale; do
+        echo; echo "-- restarting $chain --"
+        chain_restart "$chain"
+        ok=
+        for i in $(seq 1 30); do
+            if chain_running "$chain"; then
+                pid=$(pgrep -f "^\./$chain .*--rpc " 2>/dev/null | head -1)
+                cmd=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
+                echo "$cmd" | grep -qE -- '0[.]0[.]0[.]0|--unlock ' || { ok=1; break; }
+            fi
+            sleep 2
+        done
+        if [ -n "$ok" ]; then
+            echo_ok "$chain back up, hardened (127.0.0.1)"
+        else
+            echo_error "$chain did not come back hardened in time - check '$SCRIPT_NAME $chain status' before continuing"
+            return 1
+        fi
+    done
+
+    echo; echo_ok "all stale side chains hardened"
+    [ -n "$skipped" ] && echo "  still on old flags (no cold reward):$skipped - set it, then '$SCRIPT_NAME <chain> restart'"
+    echo "Verify:  $SCRIPT_NAME summary"
+}
+
 # migrate [--dry-run]: move an existing install (old-fork or official Elastos)
 # onto this hardened fork. Preserves keystore + chaindata + config; only writes the
 # profile + a rollback snapshot; NEVER auto-restarts and NEVER deletes anything.
 migrate()
 {
     local dryrun= src=fresh prof chain pid cmd a ts stale= need_reward=
-    case "$1" in --dry-run|-n) dryrun=1 ;; esac
+    case "$1" in
+        --apply)      migrate_apply "$2"; return $? ;;
+        --dry-run|-n) dryrun=1 ;;
+    esac
 
     ui_bold "Migrate to the hardened elastos-node fork"; echo
     [ -n "$dryrun" ] && { ui_dim "  dry-run: nothing will be changed"; echo; }
@@ -6308,7 +6373,7 @@ elif [ "$1" == "uninstall" ]; then
     uninstall_cmd
     exit
 elif [ "$1" == "migrate" ]; then
-    migrate "$2"
+    migrate "$2" "$3"
     exit $?
 elif [ "$1" == "setup" ]; then
     setup

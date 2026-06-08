@@ -96,6 +96,7 @@ For remote monitoring, front the node with an SSH tunnel or VPN rather than expo
 ./node.sh reward set 0x…        # set the cold miner address for all side chains
 ./node.sh uninstall             # stop + remove install/config (keystore backed up)
 ./node.sh migrate [--dry-run]   # move an old/official install onto this fork (safe, staged)
+./node.sh migrate --apply       # staged restart to apply hardening (side chains only; ELA stays up)
 ./node.sh <chain> up|down|restart|logs|rpc|version   # per-chain modern verbs
 
 ./node.sh setup                 # turnkey: deps + swap + firewall + autostart + init

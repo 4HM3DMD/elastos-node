@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.0 — Zero-downtime hardening apply (finishes the UX/migration roadmap)
+
+- **`node.sh migrate --apply [--yes]`** — applies the hardened RPC binding with **near-zero downtime**:
+  - restarts **only stale side chains** (`esc`/`eid`/`pg`), **one at a time**, and waits for each to come back on `127.0.0.1` (verified via its live command line) **before** restarting the next;
+  - **never restarts the ELA mainchain** — your council producer keeps signing throughout, so consensus is uninterrupted;
+  - **skips** any chain with no cold reward address (it would refuse to start) and **stops on failure**, so you investigate before continuing;
+  - a single node can't know fleet quorum, so it reminds you to coordinate across the council.
+- The version string now tracks the release (`v0.9.0`).
+
 ## v0.8.5 — `migrate` (move onto the fork safely)
 
 - **`node.sh migrate [--dry-run]`** — move an existing install (an older fork version **or** the official Elastos `node.sh`) onto this hardened fork:
