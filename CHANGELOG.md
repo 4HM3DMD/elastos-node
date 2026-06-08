@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.3 — Help & onboarding (discoverable at last)
+
+- **`help` now lists every command.** The old help grep-generated only *chain names* — `summary`, `health`, `profile`, `setup`, `reward`, and all the modern verbs were invisible. It's now a clean, grouped, modern-first reference.
+- **Honest per-chain help.** `node.sh <chain>` shows that chain's real commands (the old `ela_usage` advertised `watch`/`mon` that don't exist; `pg` had no help at all). ELA lists its governance commands; side chains show the cold-reward hint.
+- **No more silent success.** `node.sh <chain>` with no command now prints help and **exits non-zero** (was exit `0` — a scripting landmine). Unknown command/chain errors also exit non-zero, with a richer did-you-mean across both verbs and chains.
+
 ## v0.8.2 — Modern command layer (docker/gh-style verbs)
 
 All additive — **every old command still works byte-for-byte**; the modern verbs are aliases over the same dispatch.

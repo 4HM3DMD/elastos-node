@@ -6081,25 +6081,63 @@ EOF
     echo
 }
 
-usage()
+# chain_help <chain>: the real per-chain command list (replaces the stale *_usage).
+chain_help()
 {
-    echo "Usage: $SCRIPT_NAME [CHAIN] COMMAND [OPTIONS]"
-    echo "Manage Elastos Node"
+    local chain=$1
+    echo "Usage:  $SCRIPT_NAME $chain <command> [options]"
     echo
-    echo "Diag Info:"
-    echo
-    echo "  Deploy Path:    $SCRIPT_PATH"
-    echo "  Script SHA1:    $SCRIPT_SHA1"
-    echo "  Chains Type:    $CHAIN_TYPE"
-    echo
-    echo "Available Chains:"
-    echo
-    for i in $(grep "^[^ ]\+_ver(" $BASH_SOURCE | sed 's/(.*$//'); do
-    printf "  %-16s%s\n" $(${i})
-    done
-    echo
+    echo "  up | start     down | stop     restart     status [--pretty|--json]     health"
+    echo "  logs [-f]      init     update     version"
+    echo "  client         rpc | jsonrpc"
+    case "$chain" in
+        ela)
+            echo "  send           transfer"
+            echo "  governance:    register-bpos activate-bpos unregister-bpos vote-bpos"
+            echo "                 stake-bpos unstake-bpos claim-bpos register-crc activate-crc unregister-crc"
+            ;;
+        esc|eid|pg)
+            echo "  reward:        set a cold mining address via  $SCRIPT_NAME reward set 0x.."
+            ;;
+    esac
 }
 
+usage()
+{
+    echo "elastos-node v$ELASTOS_NODE_VERSION - hardened Elastos node runner"
+    echo
+    echo "Usage:  $SCRIPT_NAME <command> [options]"
+    echo "        $SCRIPT_NAME <chain> <command> [options]"
+    echo
+    echo "SETUP & RUN  (acts on the active profile)"
+    echo "  setup              prepare a fresh box + initialize (deps, swap, firewall, autostart)"
+    echo "  init               download binaries + create the keystore"
+    echo "  up | start         start every chain in the profile"
+    echo "  down | stop        stop them"
+    echo "  restart            restart them, one chain at a time"
+    echo "  update             update the chain binaries"
+    echo "  profile [set P]    choose what this node runs (mainchain | full)"
+    echo "  firewall           open peer/consensus ports (RPC stays on 127.0.0.1)"
+    echo "  reward [set 0x..]  cold miner reward address for the side chains"
+    echo
+    echo "MONITOR"
+    echo "  ps | summary       one-row-per-chain health (add --json)"
+    echo "  status             full status for the profile"
+    echo "  health             exit-code health check (0 = all healthy)"
+    echo "  logs [chain] [-f]  tail a chain's log"
+    echo "  version | -v       fork + chain versions"
+    echo
+    echo "PER-CHAIN    $SCRIPT_NAME <chain> <command>"
+    echo "  up down restart status [--pretty|--json] health logs [-f]"
+    echo "  client  rpc  send  transfer  init  update  version"
+    echo "  run '$SCRIPT_NAME <chain>' to see a chain's full command list"
+    echo
+    echo "CHAINS       $(profile_chains 2>/dev/null || echo 'ela esc eid pg + oracles + arbiter')"
+    echo "MAINTAIN     set_cron   update_script   uninstall   set_path"
+    echo "FLAGS        --profile <mainchain|full>   --no-color"
+    echo
+    ui_dim "  deploy:$SCRIPT_PATH  sha:$SCRIPT_SHA1  network:$CHAIN_TYPE"; echo
+}
 #
 # Main
 #
@@ -6206,11 +6244,10 @@ else
        [ "$1" != "pg"         ] && \
        [ "$1" != "pg-oracle"  ] && \
        [ "$1" != "arbiter"    ]; then
-        echo_error "unknown chain: $1"
-        echo "  valid: ela esc eid pg esc-oracle eid-oracle pg-oracle arbiter"
-        echo "  see also: profile, summary, help"
-        did_you_mean "$1" "ela esc eid pg esc-oracle eid-oracle pg-oracle arbiter profile summary help"
-        exit
+        echo_error "unknown command or chain: $1"
+        echo "  run '$SCRIPT_NAME help' for the full list"
+        did_you_mean "$1" "up down restart ps status summary health logs version setup init start stop update profile firewall reward uninstall ela esc eid pg arbiter"
+        exit 1
     fi
     CHAIN_NAME=$1
     CHAIN_NAME_U=$(echo $CHAIN_NAME | tr "[:lower:]" "[:upper:]")
@@ -6227,8 +6264,9 @@ else
     if [ -n "$2" ] && [ "$_CMD" != "$2" ]; then set -- "$1" "$_CMD" "${@:3}"; fi
 
     if [ "$2" == "" ]; then
-        # no command specified
-        COMMAND=usage
+        # no command: show this chain's commands and exit non-zero (not a silent success)
+        chain_help "$CHAIN_NAME"
+        exit 1
     elif [ "$2" == "start"   ] || \
          [ "$2" == "stop"    ] || \
          [ "$2" == "status"  ] || \
@@ -6259,9 +6297,9 @@ else
         COMMAND=$2
     else
         echo_error "unknown command: $2"
-        echo "  valid: start stop status init update client jsonrpc send"
-        did_you_mean "$2" "start stop status init update client jsonrpc send register_bpos activate_bpos unregister_bpos"
-        exit
+        echo "  run '$SCRIPT_NAME $CHAIN_NAME' to see $CHAIN_NAME commands"
+        did_you_mean "$2" "up down restart start stop status health logs init update client rpc jsonrpc send transfer version register_bpos activate_bpos vote_bpos stake_bpos claim_bpos"
+        exit 1
     fi
     # command aliases
     if [ "$COMMAND" == "upgrade" ]; then
