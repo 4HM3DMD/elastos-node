@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="0.9.4"
+ELASTOS_NODE_VERSION="0.9.5"
 
 #
 # utility
@@ -210,48 +210,65 @@ chain_pid()
 }
 
 # render_status_one <chain>: a compact 2-line card with the useful fields only.
+_sf() { sed -n "s/^$1:[[:space:]]*//p" <<<"$2" | head -1; }
+
+# render_status_one <chain>: a clean card built from the chain's own status output -
+# keeps the useful fields (council/BPoS/CRC + pubkey for ela, reward for side chains,
+# bridge heights for arbiter) and drops the noise (Balance/#Files/#TCP/port lists).
 render_status_one()
 {
-    local chain=$1 ver glyph verd h p sy pid up='-' ram='-' disk es rk rs ad extra=
-    ver=$("${chain}_ver" 2>/dev/null | awk '{print $NF}'); [ -z "$ver" ] && ver='-'
-    if ! "${chain}_installed" 2>/dev/null; then
-        printf '  %s %-11s %s\n' "$(ui_dim "$UI_DOT_OFF")" "$chain" "$(ui_dim 'not installed')"; return
+    local chain=$1 out ver state glyph verd peers height up ram disk sy
+    out=$("${chain}_status" 2>/dev/null)
+    if [ -z "$out" ]; then
+        printf '  %s %-11s %s\n' "$(ui_dim "$UI_DOT_OFF")" "$chain" "$(ui_dim 'no status')"; return
     fi
-    if ! chain_running "$chain"; then
+    ver=$(awk 'NR==1{print $2}' <<<"$out")
+    state=$(awk 'NR==1{print $NF}' <<<"$out")
+    if [ "$state" != "Running" ]; then
         printf '  %s %-11s %-9s %s\n' "$(ui_dim "$UI_DOT_OFF")" "$chain" "$ver" "$(ui_dim 'stopped')"; return
     fi
-    pid=$(chain_pid "$chain")
-    if [ -n "$pid" ]; then
-        es=$(ps -o etimes= -p "$pid" 2>/dev/null)
-        rk=$(ps -o rss= -p "$pid" 2>/dev/null)
-        [[ "$es" =~ ^[0-9]+$ ]] && up="$((es/3600))h$(((es%3600)/60))m"
-        [[ "$rk" =~ ^[0-9]+$ ]] && ram="$((rk/1024))M"
-    fi
-    disk=$(disk_usage "$SCRIPT_PATH/$chain" 2>/dev/null); [ -z "$disk" ] && disk='-'
+    peers=$(_sf '#Peers' "$out"); height=$(_sf 'Height' "$out")
+    up=$(_sf 'Uptime' "$out"); ram=$(_sf 'RAM' "$out"); disk=$(_sf 'Disk' "$out")
+
     case "$chain" in
         *-oracle|arbiter)
             printf '  %s %-11s %-9s %s\n' "$(ui_green "$UI_DOT_OK")" "$chain" "$ver" "running"
             ;;
         *)
-            h=$(chain_height "$chain" 2>/dev/null); [ -z "$h" ] && h='?'
-            p=$(chain_peers  "$chain" 2>/dev/null); [ -z "$p" ] && p='?'
             sy=$(chain_synced "$chain" 2>/dev/null)
             glyph=$(ui_green "$UI_DOT_OK"); verd=$(ui_green 'synced')
             [ "$sy" == "syncing" ] && { glyph=$(ui_yellow "$UI_DOT_WARN"); verd=$(ui_yellow 'syncing'); }
-            [ "$p" == "0" ]        && { glyph=$(ui_red "$UI_DOT_WARN");    verd=$(ui_red 'NO PEERS'); }
-            printf '  %s %-11s %-9s %s · %s peers · height %s\n' "$glyph" "$chain" "$ver" "$verd" "$p" "$h"
+            [ "$peers" == "0" ]    && { glyph=$(ui_red "$UI_DOT_WARN");    verd=$(ui_red 'NO PEERS'); }
+            printf '  %s %-11s %-9s %s · %s peers · height %s\n' "$glyph" "$chain" "$ver" "$verd" "${peers:--}" "${height:--}"
             ;;
     esac
-    case "$chain" in
-        esc|eid|pg)
-            rs=$(evm_reward_status "$chain" 2>/dev/null)
-            ad=$(tr -d '[:space:]' < "$SCRIPT_PATH/$chain/data/miner_address.txt" 2>/dev/null)
-            [ -n "$ad" ] && extra=" · reward ${ad:0:6}…${ad: -4} $rs"
-            ;;
-    esac
-    printf '       %s\n' "$(ui_dim "up $up · ram $ram · disk $disk$extra")"
-}
 
+    case "$chain" in
+        ela)
+            local bn=$(_sf 'BPoS Name' "$out") bs=$(_sf 'BPoS State' "$out") bv=$(_sf 'BPoS Votes' "$out") br=$(_sf 'BPoS Rewards' "$out")
+            local cn=$(_sf 'CRC Name' "$out") cs=$(_sf 'CRC State' "$out")
+            local addr=$(_sf 'Address' "$out") pub=$(_sf 'Public Key' "$out")
+            if [ -n "$bn" ] && [ "$bn" != "N/A" ]; then
+                printf '       council  %s · %s · %s votes · %s rewards\n' "$(ui_green "$bn")" "$bs" "$bv" "$br"
+            elif [ -n "$cn" ] && [ "$cn" != "N/A" ]; then
+                printf '       council  %s · %s  (CR member)\n' "$(ui_green "$cn")" "$cs"
+            else
+                printf '       %s\n' "$(ui_dim 'council  not registered  (node.sh ela register-bpos / register-crc)')"
+            fi
+            [ -n "$addr" ] && printf '       address  %s\n' "$addr"
+            [ -n "$pub" ]  && printf '       pubkey   %s\n' "$pub"
+            ;;
+        esc|eid|pg)
+            local m=$(_sf 'Miner' "$out") rs=$(evm_reward_status "$chain" 2>/dev/null)
+            [ -n "$m" ] && printf '       reward   %s…%s (%s)\n' "${m:0:6}" "${m: -4}" "$rs"
+            ;;
+        arbiter)
+            printf '       bridge   %s\n' "$(ui_dim "spv $(_sf 'SPV Height' "$out") · esc $(_sf 'ESC Height' "$out") · eid $(_sf 'EID Height' "$out") · pg $(_sf 'PG Height' "$out")")"
+            ;;
+    esac
+
+    printf '       %s\n' "$(ui_dim "up ${up:--} · ram ${ram:--} · disk ${disk:--}")"
+}
 # render_status_all: a card for every chain in the active profile.
 render_status_all()
 {

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.5 — Status cards now show the council info (and read cleaner)
+
+The card is now built from each chain's own status, so it keeps the **important** fields and drops only the noise:
+- **The ELA card shows the council / governance line** — BPoS (or CRC) **name · state · votes · rewards** — plus the **address** and the **full public key** (for registration). When unregistered it says so and points at `register-bpos` / `register-crc`.
+- Side chains show the **cold/hot reward**; the arbiter shows its **bridge heights** (spv · esc · eid · pg).
+- Still dropped: `Balance`, `#Files`, `#TCP`, the TCP/UDP port lists.
+
 ## v0.9.4 — `status` redesigned as clean per-chain cards
 
 - **`node.sh status` now shows a compact 2-line card per chain** with the *useful* info — health verdict, version, peers, height, and `up · ram · disk` (+ the cold/hot reward for side chains) — and **drops the noise** (`Balance`, `#Files`, `#TCP`, the TCP/UDP port lists).
