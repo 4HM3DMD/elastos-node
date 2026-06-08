@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="0.9.1"
+ELASTOS_NODE_VERSION="0.9.2"
 
 #
 # utility
@@ -1125,6 +1125,26 @@ firewall()
 
 # setup: one-time host prep for a fresh Ubuntu box, then initialize the node.
 # Installs dependencies, adds swap, opens the firewall, enables autostart, runs init.
+# clean_orphaned_config: a deleted ~/node can leave ~/.config/elastos/<chain>.txt
+# (keystore passwords) with no matching keystore, which makes init bail half-way and
+# leaves a broken half-install. Detect that split-brain and offer to clear it.
+clean_orphaned_config()
+{
+    local chain orphan= ANSWER
+    for chain in ela esc eid pg; do
+        [ -f ~/.config/elastos/$chain.txt ] && [ ! -f "$SCRIPT_PATH/$chain/.init" ] && orphan="$orphan $chain"
+    done
+    [ -z "$orphan" ] && return 0
+    echo
+    echo_warn "leftover keystore passwords from a previous install (no matching keystore):$orphan"
+    echo "  these block init; the keystore they belonged to is already gone, so they are useless."
+    read -p "Remove them so init can proceed? (Yes/No) " ANSWER
+    case "$ANSWER" in
+        Yes|yes|y) for chain in $orphan; do rm -f ~/.config/elastos/$chain.txt && echo_ok "removed $chain.txt"; done ;;
+        *) echo_warn "left in place - init will fail for:$orphan  (remove them or run '$SCRIPT_PATH/$SCRIPT_NAME uninstall')" ;;
+    esac
+}
+
 setup()
 {
     echo "=== Elastos node setup ==="
@@ -1166,15 +1186,15 @@ setup()
     all_init
 
     echo; echo_ok "setup complete"
-    echo "Next steps:"
+    echo "Next steps (run with the full path shown, or: cd $SCRIPT_PATH && ./node.sh ...):"
     if [ "$prof" == "full" ]; then
-        echo "  1. set a COLD reward address for mining (rewards must not go to a hot wallet):"
-        echo "       for c in esc eid pg; do echo 0xYOURCOLDADDR > $SCRIPT_PATH/\$c/data/miner_address.txt; chmod 600 $SCRIPT_PATH/\$c/data/miner_address.txt; done"
+        echo "  1. set a COLD reward address for the side chains:"
+        echo "       $SCRIPT_PATH/$SCRIPT_NAME reward set 0xYOURCOLDADDRESS"
     fi
-    echo "  2. start:            $SCRIPT_NAME start"
-    echo "  3. check:            $SCRIPT_NAME summary"
-    echo "  4. after full sync, get the 02/03... public key to register in Essentials:"
-    echo "       $SCRIPT_NAME ela status"
+    echo "  2. start:   $SCRIPT_PATH/$SCRIPT_NAME up"
+    echo "  3. check:   $SCRIPT_PATH/$SCRIPT_NAME summary"
+    echo "  4. after full sync, get the 02/03... public key for Essentials:"
+    echo "       $SCRIPT_PATH/$SCRIPT_NAME ela status"
 }
 
 # chain_restart <chain>: stop, wait for exit, start.
@@ -1487,6 +1507,7 @@ all_update()
 all_init()
 {
     profile_prompt_if_unset
+    clean_orphaned_config
     local chain
     for chain in $(profile_chains); do
         "${chain}_init"
@@ -1597,6 +1618,11 @@ ela_start()
 {
     if [ ! -f $SCRIPT_PATH/ela/ela ]; then
         echo_error "$SCRIPT_PATH/ela/ela is not exist"
+        return
+    fi
+
+    if [ ! -f $SCRIPT_PATH/ela/config.json ]; then
+        echo_error "ela is not initialized (no config.json) - run:  $SCRIPT_PATH/$SCRIPT_NAME ela init"
         return
     fi
 

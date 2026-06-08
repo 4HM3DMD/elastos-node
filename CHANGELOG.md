@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.2 — Robustness: stop the half-init / broken-start footgun
+
+Fixes the failure mode where a leftover `~/.config/elastos/*.txt` (from an `rm -rf ~/node` that didn't also clear the config) made `init` bail half-way and `start` launch a broken, config-less `ela`.
+
+- **`init` now detects orphaned keystore passwords** — a `~/.config/elastos/<chain>.txt` with no matching keystore — and offers to clear them so init can proceed (instead of the cryptic `<chain>.txt exists` and a half-install).
+- **`start` refuses an uninitialized `ela`** (no `config.json`) with a clear "run init" message, instead of launching a broken daemon that spams `config.json: No such file`.
+- **Post-`setup` next-steps use the full path** (`$SCRIPT_PATH/node.sh …`) and the `reward set` command, so the suggested commands actually run (no more `node.sh: command not found`).
+- Reminder: use **`node.sh uninstall`** (stops processes **and** clears `~/.config/elastos`) for a clean teardown — `rm -rf node` alone leaves the config behind and the daemon running.
+
 ## v0.9.1 — Auto-fetch the ELA `sponsors` file (no more mainchain stall)
 
 - The ELA mainchain needs a `sponsors` file (a `height → sponsor` lookup) to validate blocks past the RecordSponsor fork (~block 1.8M). The official runner never downloads it, so fresh nodes sync fine until ~1.8M and then **stall** with `sponsors file not exist!`. `ela_start` now **fetches it automatically** when missing — mainnet only, from the matching binary version with a `v0.9.9` fallback, with a clear warning if the download fails. Self-healing and one-time (~28 MB).
