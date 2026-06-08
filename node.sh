@@ -196,7 +196,7 @@ render_health_all()
 # render_summary: one row per chain in the active profile (the fleet glance).
 render_summary()
 {
-    local prof total=0 running=0 stopped=0 chain st glyph h p sy
+    local prof total=0 running=0 stopped=0 chain st glyph h p sy issues=
     prof=$(get_profile)
     echo
     printf '  %s   profile: %s\n' "$(ui_bold 'Elastos node')" "$prof"
@@ -208,20 +208,29 @@ render_summary()
             st='-'; glyph=$(ui_dim "$UI_DOT_OFF")
         elif chain_running "$chain"; then
             st='running'; glyph=$(ui_green "$UI_DOT_OK"); running=$((running + 1))
-            h=$(chain_height "$chain" 2>/dev/null); [ -z "$h" ] && h='?'
-            p=$(chain_peers  "$chain" 2>/dev/null); [ -z "$p" ] && p='-'
+            h=$(chain_height "$chain" 2>/dev/null)
+            p=$(chain_peers  "$chain" 2>/dev/null)
+            case "$chain" in
+                *-oracle|arbiter) [ -z "$h" ] && h='-'; [ -z "$p" ] && p='-' ;;
+                *)                [ -z "$h" ] && h='?'; [ -z "$p" ] && p='?' ;;
+            esac
             sy=$(chain_synced "$chain" 2>/dev/null)
-            [ "$sy" == "syncing" ] && glyph=$(ui_yellow "$UI_DOT_WARN")
-            [ "$p" == "0" ]       && glyph=$(ui_red "$UI_DOT_WARN")
+            if [ "$sy" == "syncing" ]; then glyph=$(ui_yellow "$UI_DOT_WARN"); issues="$issues $chain(syncing)"; fi
+            if [ -n "$p" ] && [ "$p" == "0" ]; then glyph=$(ui_red "$UI_DOT_WARN"); issues="$issues $chain(no-peers)"; fi
         else
-            st='stopped'; glyph=$(ui_dim "$UI_DOT_OFF"); stopped=$((stopped + 1))
+            st='stopped'; glyph=$(ui_dim "$UI_DOT_OFF"); stopped=$((stopped + 1)); issues="$issues $chain(stopped)"
         fi
         printf '  %-12s %-9s %-13s %-6s %s\n' "$chain" "$st" "$h" "$p" "$glyph"
     done
     printf '  %s\n' '-------------------------------------------------------'
-    printf '  %s\n\n' "$(ui_dim "$total chains, $running running, $stopped stopped")"
+    echo "  $(ui_green "$UI_DOT_OK") healthy   $(ui_yellow "$UI_DOT_WARN") syncing/attention   $(ui_dim "$UI_DOT_OFF") stopped"
+    if [ -z "$issues" ]; then
+        echo "  $(ui_green '✓') $running/$total running, all healthy"
+    else
+        echo "  $(ui_yellow '⚠') attention:$issues"
+    fi
+    echo
 }
-
 # render_pretty <chain>: health-first verdict + key facts, then the full status.
 render_pretty()
 {

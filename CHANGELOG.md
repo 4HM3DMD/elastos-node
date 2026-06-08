@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.4 — Output polish (the dashboard explains itself)
+
+- `summary` / `ps` now print a **glyph legend** (`● healthy   ◐ syncing/attention   ○ stopped`) and an **attention line** that names exactly which chains need it — e.g. `⚠ attention: esc(no-peers) eid(syncing) pg(stopped)`. No more guessing what `◐` means or scanning rows.
+- Service rows (oracles, arbiter) show `-` for height/peers instead of a misleading `?` (they have no block height).
+
 ## v0.8.3 — Help & onboarding (discoverable at last)
 
 - **`help` now lists every command.** The old help grep-generated only *chain names* — `summary`, `health`, `profile`, `setup`, `reward`, and all the modern verbs were invisible. It's now a clean, grouped, modern-first reference.
