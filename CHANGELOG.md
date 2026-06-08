@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.4 — `status` redesigned as clean per-chain cards
+
+- **`node.sh status` now shows a compact 2-line card per chain** with the *useful* info — health verdict, version, peers, height, and `up · ram · disk` (+ the cold/hot reward for side chains) — and **drops the noise** (`Balance`, `#Files`, `#TCP`, the TCP/UDP port lists).
+- The three views now layer cleanly:
+  - `node.sh summary` / `ps` → one row per chain (the glance)
+  - `node.sh status` → the per-chain cards (useful detail, compact)
+  - `node.sh status --verbose` (or `<chain> status --verbose`) → the old full dump
+- `node.sh <chain> status` shows that chain's card; `--json` unchanged.
+
 ## v0.9.3 — No more `./node.sh`, and `status` is glanceable
 
 - **Global `node.sh` command.** `setup` installs a wrapper at `/usr/local/bin/node.sh`, so you run `node.sh status` from **anywhere** — no `./` and no full path (works immediately, no re-login). `SCRIPT_PATH` now resolves through symlinks/wrappers so the real install dir is always found.

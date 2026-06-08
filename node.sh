@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="0.9.3"
+ELASTOS_NODE_VERSION="0.9.4"
 
 #
 # utility
@@ -194,6 +194,77 @@ render_health_all()
 }
 
 # render_summary: one row per chain in the active profile (the fleet glance).
+# chain_pid <chain>: the live PID (same detection as chain_running).
+chain_pid()
+{
+    case "$1" in
+        ela)        pgrep -x ela     2>/dev/null | head -1 ;;
+        arbiter)    pgrep -x arbiter 2>/dev/null | head -1 ;;
+        esc|eco|pgp|pg|eid) pgrep -f "^\./$1 .*--rpc " 2>/dev/null | head -1 ;;
+        esc-oracle) pgrep -fx 'node crosschain_oracle.js' 2>/dev/null | head -1 ;;
+        eid-oracle) pgrep -fx 'node crosschain_eid.js'    2>/dev/null | head -1 ;;
+        eco-oracle) pgrep -fx 'node crosschain_eco.js'    2>/dev/null | head -1 ;;
+        pgp-oracle) pgrep -fx 'node crosschain_pgp.js'    2>/dev/null | head -1 ;;
+        pg-oracle)  pgrep -fx 'node crosschain_pg.js'     2>/dev/null | head -1 ;;
+    esac
+}
+
+# render_status_one <chain>: a compact 2-line card with the useful fields only.
+render_status_one()
+{
+    local chain=$1 ver glyph verd h p sy pid up='-' ram='-' disk es rk rs ad extra=
+    ver=$("${chain}_ver" 2>/dev/null | awk '{print $NF}'); [ -z "$ver" ] && ver='-'
+    if ! "${chain}_installed" 2>/dev/null; then
+        printf '  %s %-11s %s\n' "$(ui_dim "$UI_DOT_OFF")" "$chain" "$(ui_dim 'not installed')"; return
+    fi
+    if ! chain_running "$chain"; then
+        printf '  %s %-11s %-9s %s\n' "$(ui_dim "$UI_DOT_OFF")" "$chain" "$ver" "$(ui_dim 'stopped')"; return
+    fi
+    pid=$(chain_pid "$chain")
+    if [ -n "$pid" ]; then
+        es=$(ps -o etimes= -p "$pid" 2>/dev/null)
+        rk=$(ps -o rss= -p "$pid" 2>/dev/null)
+        [[ "$es" =~ ^[0-9]+$ ]] && up="$((es/3600))h$(((es%3600)/60))m"
+        [[ "$rk" =~ ^[0-9]+$ ]] && ram="$((rk/1024))M"
+    fi
+    disk=$(disk_usage "$SCRIPT_PATH/$chain" 2>/dev/null); [ -z "$disk" ] && disk='-'
+    case "$chain" in
+        *-oracle|arbiter)
+            printf '  %s %-11s %-9s %s\n' "$(ui_green "$UI_DOT_OK")" "$chain" "$ver" "running"
+            ;;
+        *)
+            h=$(chain_height "$chain" 2>/dev/null); [ -z "$h" ] && h='?'
+            p=$(chain_peers  "$chain" 2>/dev/null); [ -z "$p" ] && p='?'
+            sy=$(chain_synced "$chain" 2>/dev/null)
+            glyph=$(ui_green "$UI_DOT_OK"); verd=$(ui_green 'synced')
+            [ "$sy" == "syncing" ] && { glyph=$(ui_yellow "$UI_DOT_WARN"); verd=$(ui_yellow 'syncing'); }
+            [ "$p" == "0" ]        && { glyph=$(ui_red "$UI_DOT_WARN");    verd=$(ui_red 'NO PEERS'); }
+            printf '  %s %-11s %-9s %s · %s peers · height %s\n' "$glyph" "$chain" "$ver" "$verd" "$p" "$h"
+            ;;
+    esac
+    case "$chain" in
+        esc|eid|pg)
+            rs=$(evm_reward_status "$chain" 2>/dev/null)
+            ad=$(tr -d '[:space:]' < "$SCRIPT_PATH/$chain/data/miner_address.txt" 2>/dev/null)
+            [ -n "$ad" ] && extra=" · reward ${ad:0:6}…${ad: -4} $rs"
+            ;;
+    esac
+    printf '       %s\n' "$(ui_dim "up $up · ram $ram · disk $disk$extra")"
+}
+
+# render_status_all: a card for every chain in the active profile.
+render_status_all()
+{
+    local chain
+    echo
+    printf '  %s   profile: %s\n' "$(ui_bold 'Elastos node')" "$(get_profile)"
+    echo
+    for chain in $(profile_chains); do render_status_one "$chain"; done
+    echo
+    echo "  $(ui_dim "full detail: node.sh <chain> status --verbose   ·   one-line: node.sh summary")"
+    echo
+}
+
 render_summary()
 {
     local prof total=0 running=0 stopped=0 chain st glyph h p sy issues=
@@ -1199,7 +1270,7 @@ setup()
     echo "  2. start:   node.sh up"
     echo "  3. check:   node.sh status"
     echo "  4. after full sync, get the 02/03... public key for Essentials:"
-    echo "       node.sh ela status"
+    echo "       node.sh ela status --verbose"
 }
 
 # chain_restart <chain>: stop, wait for exit, start.
@@ -6414,7 +6485,7 @@ elif [ "$1" == "summary" ]; then
     if [ "$2" == "--json" ]; then render_json_all; else render_summary; fi
     exit
 elif [ "$1" == "status" ]; then
-    if [ "$2" == "--verbose" ] || [ "$2" == "-v" ] || [ "$2" == "--all" ]; then all_status; else render_summary; fi
+    if [ "$2" == "--verbose" ] || [ "$2" == "-v" ] || [ "$2" == "--all" ]; then all_status; else render_status_all; fi
     exit
 elif [ "$1" == "health" ]; then
     render_health_all
@@ -6547,12 +6618,12 @@ else
 
     shift 2
 
-    if [ "$COMMAND" == "status" ] && [ "$1" == "--pretty" ]; then
-        render_pretty $CHAIN_NAME
-        exit
-    fi
-    if [ "$COMMAND" == "status" ] && [ "$1" == "--json" ]; then
-        render_json_one $CHAIN_NAME
+    if [ "$COMMAND" == "status" ]; then
+        case "$1" in
+            --verbose|-v|--all) ${CHAIN_NAME}_status ;;
+            --json)             render_json_one $CHAIN_NAME ;;
+            *)                  render_status_one $CHAIN_NAME ;;
+        esac
         exit
     fi
     if [ "$COMMAND" == "health" ]; then
