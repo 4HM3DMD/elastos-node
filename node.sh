@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="0.9.2"
+ELASTOS_NODE_VERSION="0.9.3"
 
 #
 # utility
@@ -1181,20 +1181,25 @@ setup()
     ( crontab -l 2>/dev/null | grep -vF "$SCRIPT_PATH/$SCRIPT_NAME start"
       echo "@reboot $SCRIPT_PATH/$SCRIPT_NAME start" ) | crontab -
     echo_ok "autostart enabled (@reboot)"
+    if printf '#!/bin/bash\nexec %s/%s "$@"\n' "$SCRIPT_PATH" "$SCRIPT_NAME" | sudo tee /usr/local/bin/node.sh >/dev/null 2>&1 && sudo chmod +x /usr/local/bin/node.sh 2>/dev/null; then
+        echo_ok "global command installed - run 'node.sh <command>' from anywhere"
+    else
+        echo_warn "could not install a global command; use $SCRIPT_PATH/$SCRIPT_NAME or ./node.sh"
+    fi
 
     echo; echo "-- 5/5 initialize chains --"
     all_init
 
     echo; echo_ok "setup complete"
-    echo "Next steps (run with the full path shown, or: cd $SCRIPT_PATH && ./node.sh ...):"
+    echo "Next steps:"
     if [ "$prof" == "full" ]; then
         echo "  1. set a COLD reward address for the side chains:"
-        echo "       $SCRIPT_PATH/$SCRIPT_NAME reward set 0xYOURCOLDADDRESS"
+        echo "       node.sh reward set 0xYOURCOLDADDRESS"
     fi
-    echo "  2. start:   $SCRIPT_PATH/$SCRIPT_NAME up"
-    echo "  3. check:   $SCRIPT_PATH/$SCRIPT_NAME summary"
+    echo "  2. start:   node.sh up"
+    echo "  3. check:   node.sh status"
     echo "  4. after full sync, get the 02/03... public key for Essentials:"
-    echo "       $SCRIPT_PATH/$SCRIPT_NAME ela status"
+    echo "       node.sh ela status"
 }
 
 # chain_restart <chain>: stop, wait for exit, start.
@@ -6369,7 +6374,7 @@ usage()
 #
 # Main
 #
-SCRIPT_PATH=$(cd $(dirname $BASH_SOURCE); pwd)
+SCRIPT_PATH=$(cd "$(dirname "$(readlink -f "$BASH_SOURCE" 2>/dev/null || echo "$BASH_SOURCE")")" && pwd)
 SCRIPT_NAME=$(basename $BASH_SOURCE)
 SCRIPT_SHA1=$(shasum $BASH_SOURCE | cut -c1-7)
 
@@ -6407,6 +6412,9 @@ elif [ "$1" == "profile" ]; then
     exit
 elif [ "$1" == "summary" ]; then
     if [ "$2" == "--json" ]; then render_json_all; else render_summary; fi
+    exit
+elif [ "$1" == "status" ]; then
+    if [ "$2" == "--verbose" ] || [ "$2" == "-v" ] || [ "$2" == "--all" ]; then all_status; else render_summary; fi
     exit
 elif [ "$1" == "health" ]; then
     render_health_all

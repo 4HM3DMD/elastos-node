@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.3 — No more `./node.sh`, and `status` is glanceable
+
+- **Global `node.sh` command.** `setup` installs a wrapper at `/usr/local/bin/node.sh`, so you run `node.sh status` from **anywhere** — no `./` and no full path (works immediately, no re-login). `SCRIPT_PATH` now resolves through symlinks/wrappers so the real install dir is always found.
+- **`status` is the clean summary by default.** `node.sh status` now shows the one-row-per-chain health view (height / peers / sync + legend + attention line) instead of the ~180-line per-chain wall. The old detailed dump is still available as `node.sh status --verbose`; `node.sh <chain> status` shows one chain (add `--pretty` for the health-first single-chain view).
+- Post-`setup` next-steps use the global `node.sh`.
+
 ## v0.9.2 — Robustness: stop the half-init / broken-start footgun
 
 Fixes the failure mode where a leftover `~/.config/elastos/*.txt` (from an `rm -rf ~/node` that didn't also clear the config) made `init` bail half-way and `start` launch a broken, config-less `ela`.
