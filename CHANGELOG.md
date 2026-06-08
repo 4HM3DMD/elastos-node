@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.5 — `migrate` (move onto the fork safely)
+
+- **`node.sh migrate [--dry-run]`** — move an existing install (an older fork version **or** the official Elastos `node.sh`) onto this hardened fork:
+  - **detects the source** (old-fork / official-upstream / fresh) from the profile file + running processes;
+  - **preserves what matters** — the ELA keystore, chaindata, and config are never touched; it **aborts** if `keystore.dat` is missing or `node.json` is invalid;
+  - **infers the profile** for an upstream node (from what's installed) and writes it;
+  - **bridges the cold-miner gap** — warns if a mining chain has no cold reward address (this fork refuses to mine to a hot key);
+  - **snapshots for rollback** (`node.sh.bak.<ts>`, `~/.config/elastos.bak.<ts>`);
+  - **never auto-restarts** — it hands you a staged, one-chain-at-a-time restart plan (the hardened RPC binding only applies after a restart), so you stay above BFT quorum;
+  - **`--dry-run`** previews everything and changes nothing.
+
 ## v0.8.4 — Output polish (the dashboard explains itself)
 
 - `summary` / `ps` now print a **glyph legend** (`● healthy   ◐ syncing/attention   ○ stopped`) and an **attention line** that names exactly which chains need it — e.g. `⚠ attention: esc(no-peers) eid(syncing) pg(stopped)`. No more guessing what `◐` means or scanning rows.

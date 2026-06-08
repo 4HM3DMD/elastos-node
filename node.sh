@@ -1283,6 +1283,106 @@ uninstall_cmd()
     echo_ok "uninstalled (node.sh kept; remove with: rm $SCRIPT_PATH/$SCRIPT_NAME)"
 }
 
+# migrate [--dry-run]: move an existing install (old-fork or official Elastos)
+# onto this hardened fork. Preserves keystore + chaindata + config; only writes the
+# profile + a rollback snapshot; NEVER auto-restarts and NEVER deletes anything.
+migrate()
+{
+    local dryrun= src=fresh prof chain pid cmd a ts stale= need_reward=
+    case "$1" in --dry-run|-n) dryrun=1 ;; esac
+
+    ui_bold "Migrate to the hardened elastos-node fork"; echo
+    [ -n "$dryrun" ] && { ui_dim "  dry-run: nothing will be changed"; echo; }
+    echo
+
+    # 1. detect the source install
+    if [ -f "$PROFILE_FILE" ]; then
+        src="old-fork"
+    elif [ -d "$SCRIPT_PATH/ela" ] || [ -d "$SCRIPT_PATH/esc" ] || [ -d "$SCRIPT_PATH/eid" ] || [ -d "$SCRIPT_PATH/pg" ]; then
+        src="official-upstream"
+    fi
+    echo "Source: $src"
+    if [ "$src" == "fresh" ]; then
+        echo "  no existing install found - run '$SCRIPT_NAME setup' instead."
+        return 0
+    fi
+
+    # 2. preflight - the node identity must be safe
+    echo; echo "Preflight:"
+    if [ -d "$SCRIPT_PATH/ela" ] && [ ! -f "$SCRIPT_PATH/ela/keystore.dat" ]; then
+        echo_error "ela/keystore.dat missing - node identity at risk. ABORTING (nothing changed)."
+        return 1
+    fi
+    [ -f "$SCRIPT_PATH/ela/keystore.dat" ] && echo_ok "ela keystore present (preserved, never touched)"
+    if [ -f ~/.config/elastos/node.json ]; then
+        if jq -e . ~/.config/elastos/node.json >/dev/null 2>&1; then
+            echo_ok "node.json valid"
+        else
+            echo_error "node.json is not valid JSON - fix it before migrating"; return 1
+        fi
+    fi
+
+    # 3. profile - official upstream has none, so infer it from what is installed
+    if [ -f "$PROFILE_FILE" ]; then
+        prof=$(get_profile); echo_ok "profile: $prof (kept)"
+    else
+        if [ -d "$SCRIPT_PATH/esc" ] || [ -d "$SCRIPT_PATH/eid" ] || [ -d "$SCRIPT_PATH/pg" ]; then prof=full; else prof=mainchain; fi
+        echo "  no profile (upstream) -> inferred: $prof"
+        if [ -z "$dryrun" ]; then
+            mkdir -p "$(dirname "$PROFILE_FILE")"; echo "$prof" > "$PROFILE_FILE"; echo_ok "profile written: $prof"
+        fi
+    fi
+
+    # 4. cold-miner bridge - a mining chain with no cold address will refuse to start
+    echo; echo "Mining reward addresses:"
+    for chain in esc eid pg; do
+        { [ -d "$SCRIPT_PATH/$chain" ] && [ -f ~/.config/elastos/$chain.txt ]; } || continue
+        a=
+        [ -f "$SCRIPT_PATH/$chain/data/miner_address.txt" ] && a=$(tr -d '[:space:]' < "$SCRIPT_PATH/$chain/data/miner_address.txt" 2>/dev/null)
+        if echo "$a" | grep -qiE '^0x[0-9a-f]{40}$'; then
+            echo_ok "$chain cold reward set"
+        else
+            echo "  $(ui_yellow '!') $chain is mining but has NO cold reward address"; need_reward=1
+        fi
+    done
+    [ -n "$need_reward" ] && echo "  set it before restarting:  $SCRIPT_NAME reward set 0xYOURCOLDADDR"
+
+    # 5. which running EVM chains are still on stale (unhardened) flags
+    echo; echo "Restart plan (to apply the hardened RPC binding):"
+    for chain in esc eco pgp pg eid; do
+        pid=$(pgrep -f "^\./$chain .*--rpc " 2>/dev/null | head -1)
+        [ -z "$pid" ] && continue
+        cmd=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
+        if echo "$cmd" | grep -qE -- '0[.]0[.]0[.]0|--unlock '; then
+            echo "  $(ui_yellow '!') $chain is on OLD flags (public RPC) - restart to harden"; stale="$stale $chain"
+        else
+            echo_ok "$chain already hardened (127.0.0.1)"
+        fi
+    done
+    [ -z "$stale" ] && echo "  no running EVM chain needs a restart"
+
+    # 6. snapshot for rollback (live edit only)
+    if [ -z "$dryrun" ]; then
+        echo; echo "Snapshot (rollback point):"
+        ts=$(date +%s)
+        cp -p "$SCRIPT_PATH/$SCRIPT_NAME" "$SCRIPT_PATH/$SCRIPT_NAME.bak.$ts" 2>/dev/null && echo_ok "node.sh -> $SCRIPT_NAME.bak.$ts"
+        [ -d ~/.config/elastos ] && cp -rp ~/.config/elastos ~/.config/elastos.bak.$ts 2>/dev/null && echo_ok "config -> ~/.config/elastos.bak.$ts"
+    fi
+
+    # 7. hand control to the operator - never auto-restart
+    echo
+    if [ -n "$dryrun" ]; then
+        ui_bold "DRY-RUN complete"; echo " - re-run '$SCRIPT_NAME migrate' (no flag) to write the profile + snapshot."
+    else
+        ui_bold "Migration prepared."; echo " The script is already swapped (zero downtime); daemons are still up."
+    fi
+    if [ -n "$stale" ]; then
+        echo "Apply the hardening - restart these ONE AT A TIME, staying above quorum:"
+        for chain in $stale; do echo "    $SCRIPT_NAME $chain restart"; done
+    fi
+    echo "Check anytime:  $SCRIPT_NAME summary"
+}
+
 all_start()
 {
     local chain
@@ -6207,6 +6307,9 @@ elif [ "$1" == "reward" ]; then
 elif [ "$1" == "uninstall" ]; then
     uninstall_cmd
     exit
+elif [ "$1" == "migrate" ]; then
+    migrate "$2"
+    exit $?
 elif [ "$1" == "setup" ]; then
     setup
     exit
