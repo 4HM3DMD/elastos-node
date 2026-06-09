@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.9.7 — Compatibility-audit fixes (safe drop-in for upstream)
+
+A 44-agent compatibility audit (this fork vs the official `elastos/Elastos.Node`) confirmed a **pure file-swap is zero-downtime**, and surfaced the things that could surprise an operator the moment they run a command afterward. This release fixes them.
+
+**Safety regressions**
+- `restart` / `ela restart` no longer restart the **ELA mainchain** by default — it would interrupt council consensus. Pass `--force` (or `--include-ela`) to override.
+- `restart` and `update` now **check the cold reward address before stopping** a mining side chain, so a miner is never stopped-then-stranded — it's left running with a clear message instead.
+- `migrate --apply` now hardens **eco/pgp** too (was esc/eid/pg only), so no live side chain is left on public `0.0.0.0` + `--unlock` while it reports success.
+- Migration rollback snapshots use a unique suffix (no same-second collision).
+
+**Fail-loud — the hardening is no longer silent**
+- Every EVM start prints a one-line notice that RPC/WS is bound to `127.0.0.1` (it was public `0.0.0.0` on upstream).
+- `start` now collects side chains that refused to start (missing cold address) and **exits non-zero** with a summary, instead of letting a down miner look like a healthy fleet.
+
+**Reversibility + robustness**
+- New `EVM_RPC_BIND` env (default `127.0.0.1`) to deliberately re-expose read-only RPC behind a firewall, with a loud per-start warning. The drain fix — no `--unlock`, no `personal` API — stays regardless of bind address.
+- The `sponsors` download and version probe now have `curl` timeouts, so `ela start` can't hang on a network blip.
+- `status` falls back to the **full classic dump when piped** (non-TTY), so existing wrapper/cron scripts that parse the old per-chain output keep working.
+
+**Automation safety**
+- Interactive prompts (profile, network, orphan-config, `uninstall`, `migrate --apply`) are now TTY-guarded: in a non-interactive shell they take the safe default or refuse cleanly instead of blocking. `uninstall` refuses to delete unattended.
+
 ## v0.9.6 — `status` is the familiar labeled view again, minus the clutter
 
 Operator feedback: the compact cards lost the readable, **labeled** layout of the classic status. v0.9.6 brings that back — `node.sh status` now shows each chain's own status block, **one labeled field per line, aligned**, with only the noise removed:
