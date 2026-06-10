@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.8 — Code-review fixes (hardening the v0.9.7 fixes)
+
+A multi-agent review of v0.9.7 found seven issues — all fixed here, each verified with isolated function tests.
+
+- **The ELA-restart guard could be bypassed by the environment.** `FORCE_ELA` was never reset, so a stray `export FORCE_ELA=1` (a leftover, a cron `env`, `/etc/environment`) silently re-enabled `node.sh restart` restarting the mainchain. It's now reset at startup — only `--force` enables it.
+- **`restart` now reports partial failures.** `all_restart` aggregates per-chain results and exits non-zero if any chain failed (matching what `start` already did), so a failed side-chain restart isn't hidden behind a later success.
+- **Prompts honor piped answers again.** The profile / network / orphan-config prompts no longer sniff the TTY — they read piped input when present and fall back to a safe default only on real end-of-input. Fixes a regression where `… | node.sh … init` could silently pick the wrong network.
+- **`EVM_RPC_BIND` is now validated and persistable.** The bind resolves from the env var **or** a persistent `~/.config/elastos/evm_rpc_bind` file, and an invalid value falls back to `127.0.0.1` (fail-closed — a typo can never bind somewhere unintended). The drain fix (no `--unlock`/`personal`) is independent of this.
+- **The "RPC bound to …" notice only prints once the daemon is actually up** — no more narrating a bind for a chain that just failed to start.
+- **Sponsors fetch can't stall the mainchain.** `curl` now aborts a stalled transfer in ~30s (`--speed-limit`/`--speed-time`) instead of waiting out the full timeout, with clearer "one-time ~28MB, safe to wait" guidance.
+- **De-duplicated EVM logic.** New `EVM_CHAINS` constant + `is_evm_chain` / `evm_rpc_bind` / `guard_cold_for_update` helpers replace copy-pasted chain lists and guards (single source of truth).
+
 ## v0.9.7 — Compatibility-audit fixes (safe drop-in for upstream)
 
 A 44-agent compatibility audit (this fork vs the official `elastos/Elastos.Node`) confirmed a **pure file-swap is zero-downtime**, and surfaced the things that could surprise an operator the moment they run a command afterward. This release fixes them.

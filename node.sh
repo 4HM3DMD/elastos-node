@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="0.9.7"
+ELASTOS_NODE_VERSION="0.9.8"
+
+# Reset override flags so a value inherited from the environment cannot silently enable them.
+FORCE_ELA=
 
 #
 # utility
@@ -80,6 +83,25 @@ chain_running()
     esac
 }
 
+# EVM_CHAINS: the geth-based side chains (single source of truth).
+EVM_CHAINS="esc eco pgp pg eid"
+
+# is_evm_chain <chain>: true if <chain> is one of the EVM side chains.
+is_evm_chain() { case " $EVM_CHAINS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# evm_rpc_bind: the address EVM chains bind RPC/WS to. Defaults to 127.0.0.1 (localhost
+# only). Override with the EVM_RPC_BIND env var (this session) or a persistent
+# ~/.config/elastos/evm_rpc_bind file. An invalid value falls back to 127.0.0.1
+# (fail-closed - a typo must never bind somewhere unintended).
+evm_rpc_bind()
+{
+    local b=$EVM_RPC_BIND
+    [ -z "$b" ] && [ -r ~/.config/elastos/evm_rpc_bind ] && b=$(tr -d '[:space:]' < ~/.config/elastos/evm_rpc_bind 2>/dev/null)
+    [ -z "$b" ] && b=127.0.0.1
+    echo "$b" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || b=127.0.0.1
+    echo "$b"
+}
+
 # did_you_mean <input> <valid words...>: print a suggestion for a near miss.
 did_you_mean()
 {
@@ -95,17 +117,18 @@ did_you_mean()
 # reported immediately instead of inferred from a later "stopped" status.
 verify_started()
 {
-    local chain=$1 log
-    case "$chain" in
-        esc|eco|pgp|pg|eid)
-            if [ "${EVM_RPC_BIND:-127.0.0.1}" == "127.0.0.1" ]; then
-                ui_dim "  $chain RPC/WS: 127.0.0.1 (localhost only; upstream was public 0.0.0.0). Remote access: SSH tunnel / reverse proxy."
+    local chain=$1 log bind
+    if chain_running "$chain"; then
+        if is_evm_chain "$chain"; then
+            bind=$(evm_rpc_bind)
+            if [ "$bind" == "127.0.0.1" ]; then
+                ui_dim "  $chain RPC/WS bound to 127.0.0.1 (localhost only; upstream was public 0.0.0.0). Remote access: SSH tunnel / reverse proxy."
             else
-                echo_warn "$chain RPC/WS: ${EVM_RPC_BIND} (PUBLIC - reachable off-box). Firewall it, or unset EVM_RPC_BIND to bind localhost."
+                echo_warn "$chain RPC/WS bound to $bind (PUBLIC - reachable off-box). Firewall it; persist via ~/.config/elastos/evm_rpc_bind, or set 127.0.0.1 to revert."
             fi
-            ;;
-    esac
-    chain_running "$chain" && return 0
+        fi
+        return 0
+    fi
     echo_error "$chain failed to start (not running after launch)"
     log=$(ls -t "$SCRIPT_PATH/$chain/logs/"*.log "$SCRIPT_PATH/$chain/elastos/logs/node/"*.log 2>/dev/null | head -1)
     if [ -n "$log" ]; then
@@ -364,7 +387,7 @@ profile_prompt_if_unset()
     echo "  [1] Main chain only        (ELA)"
     echo "  [2] Full stack             (ELA + side chains + oracles + arbiter)"
     local sel
-    if noninteractive; then echo "  (non-interactive: defaulting to full stack)"; sel=2; else read -p '? Your option: [2] ' sel; fi
+    read -p '? Your option: [2] ' sel || { sel=2; echo "  (no input - defaulting to full stack)"; }
     case "$sel" in
         1) set_profile mainchain >/dev/null ;;
         *) set_profile full      >/dev/null ;;
@@ -432,6 +455,13 @@ require_cold_miner()
         return 1
     fi
     return 0
+}
+
+# guard_cold_for_update <chain>: a mining EVM chain with no cold reward address would
+# refuse to (re)start, so refuse to STOP it for an update - leave it running, not stranded.
+guard_cold_for_update()
+{
+    require_cold_miner "$1" || { echo_error "$1: update aborted (would stop a miner that cannot restart without a cold reward address); left running"; return 1; }
 }
 
 set_env()
@@ -545,7 +575,7 @@ init_config()
     local SELECT=
     while true; do
         echo
-        if noninteractive; then SELECT=1; echo_info "non-interactive: defaulting to MainNet"; else read -p '? Your option: [1] ' SELECT; fi
+        read -p '? Your option: [1] ' SELECT || { SELECT=1; echo_info "no input - defaulting to MainNet"; }
 
         if [ "$SELECT" == "" ] || [ "$SELECT" == "1" ]; then
             local CHAIN_TYPE=mainnet
@@ -1191,7 +1221,7 @@ clean_orphaned_config()
     echo
     echo_warn "leftover keystore passwords from a previous install (no matching keystore):$orphan"
     echo "  these block init; the keystore they belonged to is already gone, so they are useless."
-    if noninteractive; then ANSWER=No; echo_warn "non-interactive: NOT removing password files unattended; remove them manually if truly orphaned"; else read -p "Remove them so init can proceed? (Yes/No) " ANSWER; fi
+    read -p "Remove them so init can proceed? (Yes/No) " ANSWER || { ANSWER=No; echo_warn "no input - leaving password files in place (remove manually if truly orphaned)"; }
     case "$ANSWER" in
         Yes|yes|y) for chain in $orphan; do rm -f ~/.config/elastos/$chain.txt && echo_ok "removed $chain.txt"; done ;;
         *) echo_warn "left in place - init will fail for:$orphan  (remove them or run '$SCRIPT_PATH/$SCRIPT_NAME uninstall')" ;;
@@ -1274,10 +1304,16 @@ chain_restart()
 # all_restart: restart every chain in the active profile, one at a time.
 all_restart()
 {
-    local chain
+    local chain failed=
     for chain in $(profile_chains); do
-        "${chain}_installed" 2>/dev/null && chain_restart "$chain"
+        "${chain}_installed" 2>/dev/null || continue
+        chain_restart "$chain" || failed="$failed $chain"
     done
+    if [ -n "$failed" ]; then
+        echo; echo_error "these chains did not restart:$failed"
+        return 1
+    fi
+    return 0
 }
 
 # chain_logs <chain> [-f]: tail the chain's most recent log (-f to follow).
@@ -1358,7 +1394,7 @@ uninstall_cmd()
     fi
     all_stop 2>/dev/null
     pkill -x ela 2>/dev/null; pkill -x arbiter 2>/dev/null
-    for c in esc eco pgp pg eid; do pkill -f "^\./$c .*--rpc " 2>/dev/null; done
+    for c in $EVM_CHAINS; do pkill -f "^\./$c .*--rpc " 2>/dev/null; done
     pkill -f 'node crosschain_' 2>/dev/null
     crontab -l 2>/dev/null | grep -v 'node.sh' | crontab - 2>/dev/null
     rm -rf "$SCRIPT_PATH"/ela "$SCRIPT_PATH"/esc "$SCRIPT_PATH"/eid "$SCRIPT_PATH"/pg \
@@ -1383,7 +1419,7 @@ migrate_apply()
     echo "  the ELA mainchain is NOT restarted; your consensus/producer stays online"
     echo
 
-    for chain in esc eco pgp pg eid; do
+    for chain in $EVM_CHAINS; do
         pid=$(pgrep -f "^\./$chain .*--rpc " 2>/dev/null | head -1)
         [ -z "$pid" ] && continue
         cmd=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
@@ -1501,7 +1537,7 @@ migrate()
 
     # 5. which running EVM chains are still on stale (unhardened) flags
     echo; echo "Restart plan (to apply the hardened RPC binding):"
-    for chain in esc eco pgp pg eid; do
+    for chain in $EVM_CHAINS; do
         pid=$(pgrep -f "^\./$chain .*--rpc " 2>/dev/null | head -1)
         [ -z "$pid" ] && continue
         cmd=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
@@ -1679,10 +1715,11 @@ ensure_sponsors()
     [ -s "$f" ] && return 0
     local pfx=https://download.elastos.io/elastos-ela ver v
     ver=$(get_elastos_ver_latest "$pfx" 2>/dev/null)
-    echo "Fetching the ELA sponsors file (needed past block ~1.8M)..."
+    echo "Fetching the ELA sponsors file (~28MB, one-time; needed past block ~1.8M)..."
+    echo "  on a slow link this can take a few minutes - safe to wait; do not interrupt."
     for v in "$ver" v0.9.9; do
         [ -z "$v" ] && continue
-        if curl -fsSL --connect-timeout 15 --max-time 600 "$pfx/elastos-ela-$v/sponsors" -o "$f.tmp" 2>/dev/null \
+        if curl -fsSL --connect-timeout 15 --speed-limit 1024 --speed-time 30 --max-time 600 "$pfx/elastos-ela-$v/sponsors" -o "$f.tmp" 2>/dev/null \
            && [ -s "$f.tmp" ] && ! head -c 200 "$f.tmp" | grep -qi '<html'; then
             mv "$f.tmp" "$f"
             echo_ok "sponsors file installed ($v, $(wc -l < "$f") entries)"
@@ -2996,12 +3033,12 @@ esc_start()
             --pbft.net.address '$(extip)' \
             --pbft.net.port 20639 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool,pbft' \
             --rpcvhosts '*' \
             --syncmode full \
             --ws \
-            --wsaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --wsaddr '$(evm_rpc_bind)' \
             --frozen.account.list 0xD3651037F719CC3f38ef819f919972e04A0762d4 \
             --frozen.account.list 0xd5300C4091C4C45787C1BcB2b3d089F6a6094498 \
             --frozen.account.list 0xE4F50ec2E5E75d28647ce11Fd249f1Bf44be4269 \
@@ -3022,11 +3059,11 @@ esc_start()
             --datadir $SCRIPT_PATH/esc/data \
             --lightserv 10 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool' \
             --rpcvhosts '*' \
             --ws \
-            --wsaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --wsaddr '$(evm_rpc_bind)' \
             --wsorigins '*' \
             2>&1 \
             | rotatelogs $SCRIPT_PATH/esc/logs/esc-%Y-%m-%d-%H_%M_%S.log 20M" &
@@ -3079,12 +3116,12 @@ eco_start()
             --pbft.net.address '$(extip)' \
             --pbft.net.port 20659 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool,pbft' \
             --rpcvhosts '*' \
             --syncmode full \
             --ws \
-            --wsaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --wsaddr '$(evm_rpc_bind)' \
             --wsorigins '*' \
             2>&1 \
             | rotatelogs $SCRIPT_PATH/eco/logs/eco-%Y-%m-%d-%H_%M_%S.log 20M" &
@@ -3094,11 +3131,11 @@ eco_start()
             --datadir $SCRIPT_PATH/eco/data \
             --lightserv 10 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool' \
             --rpcvhosts '*' \
             --ws \
-            --wsaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --wsaddr '$(evm_rpc_bind)' \
             --wsorigins '*' \
             2>&1 \
             | rotatelogs $SCRIPT_PATH/eco/logs/eco-%Y-%m-%d-%H_%M_%S.log 20M" &
@@ -3151,12 +3188,12 @@ pgp_start()
             --pbft.net.address '$(extip)' \
             --pbft.net.port 20669 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool,pbft' \
             --rpcvhosts '*' \
             --syncmode full \
             --ws \
-            --wsaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --wsaddr '$(evm_rpc_bind)' \
             --wsorigins '*' \
             2>&1 \
             | rotatelogs $SCRIPT_PATH/pgp/logs/pgp-%Y-%m-%d-%H_%M_%S.log 20M" &
@@ -3166,11 +3203,11 @@ pgp_start()
             --datadir $SCRIPT_PATH/pgp/data \
             --lightserv 10 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool' \
             --rpcvhosts '*' \
             --ws \
-            --wsaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --wsaddr '$(evm_rpc_bind)' \
             --wsorigins '*' \
             2>&1 \
             | rotatelogs $SCRIPT_PATH/pgp/logs/pgp-%Y-%m-%d-%H_%M_%S.log 20M" &
@@ -3224,12 +3261,12 @@ pg_start()
             --pbft.net.address '$(extip)' \
             --pbft.net.port 20679 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool,pbft' \
             --rpcvhosts '*' \
             --syncmode full \
             --ws \
-            --wsaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --wsaddr '$(evm_rpc_bind)' \
             --wsorigins '*' \
             2>&1 \
             | rotatelogs $SCRIPT_PATH/pg/logs/pg-%Y-%m-%d-%H_%M_%S.log 20M" &
@@ -3239,11 +3276,11 @@ pg_start()
             --datadir $SCRIPT_PATH/pg/data \
             --lightserv 10 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool' \
             --rpcvhosts '*' \
             --ws \
-            --wsaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --wsaddr '$(evm_rpc_bind)' \
             --wsorigins '*' \
             2>&1 \
             | rotatelogs $SCRIPT_PATH/pg/logs/pg-%Y-%m-%d-%H_%M_%S.log 20M" &
@@ -3929,7 +3966,7 @@ esc_update()
 
     local PID=$(pgrep -f '^\./esc .*--rpc ')
     if [ $PID ]; then
-        require_cold_miner esc || { echo_error "esc: update aborted (would stop a miner that cannot restart without a cold reward address); left running"; return 1; }
+        guard_cold_for_update esc || return 1
         esc_stop
     fi
 
@@ -3965,7 +4002,7 @@ eco_update()
 
     local PID=$(pgrep -f '^\./eco .*--rpc ')
     if [ $PID ]; then
-        require_cold_miner eco || { echo_error "eco: update aborted (would stop a miner that cannot restart without a cold reward address); left running"; return 1; }
+        guard_cold_for_update eco || return 1
         eco_stop
     fi
 
@@ -4001,7 +4038,7 @@ pgp_update()
 
     local PID=$(pgrep -f '^\./pgp .*--rpc ')
     if [ $PID ]; then
-        require_cold_miner pgp || { echo_error "pgp: update aborted (would stop a miner that cannot restart without a cold reward address); left running"; return 1; }
+        guard_cold_for_update pgp || return 1
         pgp_stop
     fi
 
@@ -4037,7 +4074,7 @@ pg_update()
 
     local PID=$(pgrep -f '^\./pg .*--rpc ')
     if [ $PID ]; then
-        require_cold_miner pg || { echo_error "pg: update aborted (would stop a miner that cannot restart without a cold reward address); left running"; return 1; }
+        guard_cold_for_update pg || return 1
         pg_stop
     fi
 
@@ -5242,7 +5279,7 @@ EOF
             --pbft.net.address '$(extip)' \
             --pbft.net.port 20649 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool,pbft' \
             --rpcvhosts '*' \
             --syncmode full \
@@ -5254,7 +5291,7 @@ EOF
             --datadir $SCRIPT_PATH/eid/data \
             --lightserv 10 \
             --rpc \
-            --rpcaddr '${EVM_RPC_BIND:-127.0.0.1}' \
+            --rpcaddr '$(evm_rpc_bind)' \
             --rpcapi 'eth,net,web3,txpool' \
             --rpcvhosts '*' \
             2>&1 \
@@ -5452,7 +5489,7 @@ eid_update()
 
     local PID=$(pgrep -f '^\./eid .*--rpc ')
     if [ $PID ]; then
-        require_cold_miner eid || { echo_error "eid: update aborted (would stop a miner that cannot restart without a cold reward address); left running"; return 1; }
+        guard_cold_for_update eid || return 1
         eid_stop
     fi
 
