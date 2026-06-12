@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.6 - One-line installer
+
+### Added
+- `install.sh`: a single command installs the script and, on a host that already runs a node, migrates it onto the fork.
+
+  ```
+  curl -fsSL https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/install.sh | bash
+  ```
+
+  It verifies the published SHA-256 before installing, backs up an existing `node.sh`, and never touches keystores or chain data. On a fresh host it installs the script and points to `node.sh setup`; on an existing node it runs `migrate`, which restarts nothing. This replaces the previous manual download-and-rename sequence.
+
+### Changed
+- After a successful `migrate`, the script now prints how to keep the fork updated (`node.sh update_script`).
+- Documentation leads with the one-line installer for first-time migration; the manual step-by-step procedure remains documented for operators who prefer it.
+
 ## v1.0.0-rc.5 - Simplification
 
 Subtraction-only release. No command an operator uses changes behavior.

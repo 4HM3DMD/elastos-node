@@ -30,6 +30,24 @@ The decommissioned ECO and PGP side chains are excluded from all profiles and ar
 
 ## Installation
 
+One command installs the script and, on a host that already runs a node, migrates it onto the fork. It verifies the published checksum and never touches keystores or chain data:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/install.sh | bash
+```
+
+- On a **fresh host** it installs `node.sh` and points you to `node.sh setup`.
+- On an **existing node** (upstream or an older fork) it backs up the old `node.sh`, swaps in the fork, and runs `migrate` (which restarts nothing).
+
+To review the installer before running it, download it first:
+
+```bash
+curl -fsSL -o install.sh https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/install.sh
+less install.sh && bash install.sh
+```
+
+Prefer to place the script by hand:
+
 ```bash
 mkdir -p ~/node && cd ~/node
 curl -fsSLO https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/node.sh
@@ -167,11 +185,19 @@ node.sh migrate --apply      # staged side-chain restarts to apply the hardened 
 
 ## Updating
 
+Once a node is on the fork, a single command keeps the script current:
+
+```bash
+node.sh update_script
+```
+
+It downloads `node.sh` from this repository, verifies it against the published `node.sh.sha256`, runs a syntax check, and only then replaces the installed script. To update the chain binaries instead:
+
 ```bash
 node.sh update
 ```
 
-Self-update downloads `node.sh` from this repository, verifies it against the published `node.sh.sha256`, runs a syntax check, and only then replaces the installed script. Chain binaries are updated from the official Elastos distribution servers.
+Chain binaries are updated from the official Elastos distribution servers.
 
 ## File locations
 

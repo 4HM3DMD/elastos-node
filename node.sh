@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.5"
+ELASTOS_NODE_VERSION="1.0.0-rc.6"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -1519,7 +1519,8 @@ migrate()
         echo "Apply the hardening - restart these ONE AT A TIME, staying above quorum:"
         for chain in $stale; do echo "    $SCRIPT_NAME $chain restart"; done
     fi
-    echo "Check anytime:  $SCRIPT_NAME summary"
+    echo "Check anytime:    $SCRIPT_NAME summary"
+    echo "Update later:     $SCRIPT_NAME update_script   (pulls the latest fork, checksum-verified)"
 }
 
 all_start()

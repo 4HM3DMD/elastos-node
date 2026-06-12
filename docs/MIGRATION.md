@@ -20,57 +20,69 @@ The migration is designed so that the ELA main chain is never restarted. A counc
 - A working installation in `~/node` with `ela/keystore.dat` present. Migration aborts if the keystore is missing.
 - A cold reward address for mining side chains is recommended. A mining chain without one still starts, but prints a red warning at every start, because block rewards then credit the node's local hot account. The migration reports which chains are affected.
 
-## Procedure
+## Quick path
 
-### 1. Install the fork's script alongside the existing one
+One command performs the whole migration: it backs up the existing `node.sh`, verifies and installs the fork, and runs `migrate`. Nothing is restarted.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/install.sh | bash
+```
+
+Then, when ready, apply the hardened RPC binding in stages (see step 5 below):
+
+```bash
+node.sh migrate --apply
+```
+
+The rest of this document describes the same procedure step by step, for operators who prefer to drive each step or preview first.
+
+## Step by step
+
+### 1. Preview (optional, read-only)
 
 ```bash
 cd ~/node
 curl -fsSL -o node.sh.new https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/node.sh
-curl -fsSL https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/node.sh.sha256
-shasum -a 256 node.sh.new    # compare with the published checksum
 chmod +x node.sh.new
-```
-
-### 2. Preview
-
-```bash
 ./node.sh.new migrate --dry-run
 ```
 
 The dry run reports the detected source installation, the keystore preflight, the inferred profile, the reward-address status per mining chain, and which running side chains hold stale (unhardened) flags. It changes nothing.
 
-### 3. Migrate
+### 2. Install the fork
+
+Either run the one-line installer above, or place the script by hand:
 
 ```bash
-mv node.sh node.sh.upstream
+cd ~/node
+cp -p node.sh node.sh.upstream      # keep the old script
 mv node.sh.new node.sh
 ./node.sh migrate
 ```
 
 This writes the profile and the rollback snapshots. Running daemons are not touched; they continue under the flags they were started with. The script swap itself is zero-downtime.
 
-### 4. Set the cold reward address, if reported
+### 3. Set the cold reward address, if reported
 
 ```bash
-./node.sh reward set 0xYOURCOLDADDRESS
+node.sh reward set 0xYOURCOLDADDRESS
 ```
 
 This step is recommended rather than required. A mining chain without a cold reward address starts with a red warning, and its rewards credit the node's local hot account until one is set.
 
-### 5. Apply the hardened binding
+### 4. Apply the hardened binding
 
 The hardened RPC binding takes effect when a side chain restarts. Apply it in stages:
 
 ```bash
-./node.sh migrate --apply
+node.sh migrate --apply
 ```
 
 This restarts only the side chains still running with stale flags, one at a time, and verifies each returns on `127.0.0.1` before restarting the next. The ELA main chain is excluded. The procedure stops at the first failure.
 
 For a fleet (for example, 12 council nodes), apply on one node at a time per chain, so the number of simultaneously restarting nodes for any chain stays well below the consensus quorum.
 
-### 6. Verify
+### 5. Verify
 
 ```bash
 node.sh summary        # every chain running, heights advancing
