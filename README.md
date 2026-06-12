@@ -55,7 +55,7 @@ To perform the steps individually instead:
 ./node.sh start
 ```
 
-Side chains that mine require a cold reward address before they will start:
+Side chains that mine should be given a cold reward address. Without one they still start, but print a prominent red warning, because block rewards then credit the node's local hot account:
 
 ```bash
 node.sh reward set 0xYOURCOLDADDRESS
@@ -98,7 +98,7 @@ node.sh ela status
 | `summary` / `ps` | One row per chain: state, height, peers, sync (`--json` available) |
 | `health` | One-line verdict per chain; exits non-zero if any chain is unhealthy |
 | `logs [<chain>] [-f]` | Show the most recent log for a chain (`-f` to follow) |
-| `update` | Update chain binaries (cold-reward check before stopping a miner) |
+| `update` | Update chain binaries |
 | `profile [set <p>]` | Show or set the deployment profile |
 | `firewall` | Open the peer/consensus ports for the active profile |
 | `reward [set <0x..>]` | Show or set the cold mining reward address for all side chains |
@@ -145,7 +145,7 @@ Summary of the defaults; details and the full port table are in [SECURITY.md](SE
 - RPC and WebSocket bind to `127.0.0.1`. The bind address can be changed deliberately via the `EVM_RPC_BIND` environment variable or `~/.config/elastos/evm_rpc_bind`; an invalid value falls back to `127.0.0.1`.
 - No `--unlock` and no `--allow-insecure-unlock`. Block production signs with the dedicated PBFT/ELA keystore, so sealing is unaffected.
 - The `personal`, `admin`, `db`, and `miner` RPC namespaces are not exposed.
-- A mining side chain refuses to start without a valid cold reward address.
+- A mining side chain without a cold reward address starts with a prominent red warning that block rewards credit the node's local hot account. Set a cold address with `reward set`.
 - `update` verifies a published SHA-256 checksum and a syntax check before replacing the script.
 - The ELA `sponsors` file required past block ~1,801,550 is downloaded automatically when missing.
 - The main-chain status query that can panic a syncing daemon is gated behind a sync check and reports `N/A` until the node is synced.
@@ -170,7 +170,7 @@ node.sh migrate --apply      # staged side-chain restarts to apply the hardened 
 node.sh update
 ```
 
-Self-update downloads `node.sh` from this repository, verifies it against the published `node.sh.sha256`, runs a syntax check, and only then replaces the installed script. Chain binaries are updated from the official Elastos distribution servers, with a cold-reward-address check before any mining chain is stopped.
+Self-update downloads `node.sh` from this repository, verifies it against the published `node.sh.sha256`, runs a syntax check, and only then replaces the installed script. Chain binaries are updated from the official Elastos distribution servers.
 
 ## File locations
 

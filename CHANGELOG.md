@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.3 - Warn instead of refuse on a missing cold reward address
+
+### Changed
+- A mining side chain without a cold reward address now starts (matching upstream behavior) instead of refusing to start. Every such start prints a prominent red warning stating that block rewards will credit the node's local hot account, together with the `reward set` command. The refusal policy introduced in v0.2.0 proved too strict for operators who accept mining to the local account.
+- The refusal-based guards tied to the old policy are removed: `update` no longer blocks on a missing reward address, `restart` no longer declines to stop such a chain, `migrate --apply` no longer skips it, and the bulk `start` no longer collects refused chains (nothing refuses anymore, which also removes the arbiter skip case added in v1.0.0-rc.2).
+- Internals: `require_cold_miner` and `guard_cold_for_update` are replaced by `has_cold_miner` (silent predicate) and `warn_hot_miner` (red warning, never blocks).
+
 ## v1.0.0-rc.2 - Final compatibility review fixes
 
 A five-reviewer compatibility audit of v1.0.0-rc.1 against the upstream runner confirmed command-surface, start-flag, init/update, and status-output parity, and found the following defects, all fixed and covered by isolated function tests.

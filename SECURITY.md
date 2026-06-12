@@ -7,7 +7,7 @@
 - **Loopback-only RPC.** Every chain's JSON-RPC and WebSocket endpoints bind to `127.0.0.1`. They are reachable by the node's own oracle, arbiter, and CLI over loopback, but not from the network.
 - **No remotely-spendable account.** EVM mining nodes do not unlock a signing account on startup. Block production uses the dedicated PBFT keystore; the EVM account is never unlocked for RPC, so there is no node-side `eth_sendTransaction` signing path.
 - **Reduced RPC surface.** The `personal`, `admin`, `db`, and `miner` namespaces are not exposed.
-- **Mandatory cold reward address.** A mining side chain refuses to start unless a valid cold reward address is configured, so block rewards never accrue to an account stored on the node.
+- **Cold reward address warning.** A mining side chain without a configured cold reward address starts, but prints a prominent red warning at every start: block rewards then credit the node's local hot account. Configure a cold address with `node.sh reward set`.
 - **Verified self-update.** `update` checks the download against a published SHA-256 checksum and runs a syntax check before replacing the script.
 - **Sync-safe status.** Status queries that can panic a syncing daemon are gated behind a sync check.
 

@@ -18,7 +18,7 @@ The migration is designed so that the ELA main chain is never restarted. A counc
 ## Prerequisites
 
 - A working installation in `~/node` with `ela/keystore.dat` present. Migration aborts if the keystore is missing.
-- The cold reward address requirement: this fork refuses to start a mining side chain whose reward address is not set. The migration reports which chains are affected.
+- A cold reward address for mining side chains is recommended. A mining chain without one still starts, but prints a red warning at every start, because block rewards then credit the node's local hot account. The migration reports which chains are affected.
 
 ## Procedure
 
@@ -55,6 +55,8 @@ This writes the profile and the rollback snapshots. Running daemons are not touc
 ```bash
 ./node.sh reward set 0xYOURCOLDADDRESS
 ```
+
+This step is recommended rather than required. A mining chain without a cold reward address starts with a red warning, and its rewards credit the node's local hot account until one is set.
 
 ### 5. Apply the hardened binding
 

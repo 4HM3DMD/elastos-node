@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.2"
+ELASTOS_NODE_VERSION="1.0.0-rc.3"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -437,33 +437,30 @@ update_script()
     chmod a+x "$SCRIPT"
     echo_ok "$SCRIPT updated"
 }
-# require_cold_miner <chain>: when a chain is configured to mine (its keystore
-# password file exists), refuse to start unless a valid cold reward address is set,
-# so block rewards can never fall back to this node's local (hot) account.
-require_cold_miner()
+# has_cold_miner <chain>: true when the chain either does not mine or has a valid
+# cold reward address set. Silent; used by warn_hot_miner and status displays.
+has_cold_miner()
 {
     local chain=$1
-    is_evm_chain "$chain" || return 0   # only EVM side chains mine; never gate ela / oracles / arbiter
+    is_evm_chain "$chain" || return 0   # only EVM side chains mine
     local pwfile=~/.config/elastos/${chain}.txt
     local addrfile=$SCRIPT_PATH/${chain}/data/miner_address.txt
-    [ -f "$pwfile" ] || return 0   # not a mining node; nothing to enforce
+    [ -f "$pwfile" ] || return 0   # not a mining node; nothing to check
     local addr=
     [ -f "$addrfile" ] && addr=$(tr -d '[:space:]' < "$addrfile" 2>/dev/null)
-    if ! echo "$addr" | grep -qiE '^0x[0-9a-f]{40}$'; then
-        echo_error "$chain: refusing to mine without a cold reward address"
-        echo "  Set one first:"
-        echo "    echo 0xYOURCOLDADDRESS > $addrfile && chmod 600 $addrfile"
-        echo "  (Mining without it would credit rewards to this node's local account.)"
-        return 1
-    fi
-    return 0
+    echo "$addr" | grep -qiE '^0x[0-9a-f]{40}$'
 }
 
-# guard_cold_for_update <chain>: a mining EVM chain with no cold reward address would
-# refuse to (re)start, so refuse to STOP it for an update - leave it running, not stranded.
-guard_cold_for_update()
+# warn_hot_miner <chain>: a mining chain with no cold reward address still starts,
+# but the operator is warned in red: rewards credit the node's LOCAL (hot) account.
+warn_hot_miner()
 {
-    require_cold_miner "$1" || { echo_error "$1: update aborted (would stop a miner that cannot restart without a cold reward address); left running"; return 1; }
+    local chain=$1
+    has_cold_miner "$chain" && return 0
+    echo "$(ui_red "WARNING: $chain is mining WITHOUT a cold reward address.")"
+    echo "$(ui_red "         Block rewards will credit this node's LOCAL (hot) account.")"
+    echo "  Set one, then restart:  $SCRIPT_NAME reward set 0xYOURCOLDADDRESS"
+    return 0
 }
 
 set_env()
@@ -1297,8 +1294,6 @@ chain_restart()
         echo_warn "ela restart refused: it would interrupt council consensus. Re-run with --force to include it."
         return 0
     fi
-    # don't stop a mining side chain we then could not restart (cold-address gate) - leave it running
-    require_cold_miner "$chain" || { echo "  ($chain left running; nothing was stopped)"; return 1; }
     "${chain}_stop"
     for i in 1 2 3 4 5; do chain_running "$chain" || break; sleep 1; done
     "${chain}_start"
@@ -1415,7 +1410,7 @@ uninstall_cmd()
 # coordinate across the council so only a few nodes restart a given chain at once.
 migrate_apply()
 {
-    local yes= chain pid cmd stale= skipped= ANSWER i ok
+    local yes= chain pid cmd stale= ANSWER i ok
     case "$1" in --yes|-y) yes=1 ;; esac
 
     ui_bold "Apply hardening - staged restart of stale side chains"; echo
@@ -1427,16 +1422,11 @@ migrate_apply()
         [ -z "$pid" ] && continue
         cmd=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
         echo "$cmd" | grep -qE -- '0[.]0[.]0[.]0|--unlock ' || { echo_ok "$chain already hardened"; continue; }
-        if [ -f ~/.config/elastos/$chain.txt ] && ! require_cold_miner "$chain" >/dev/null 2>&1; then
-            echo "  $(ui_yellow '!') $chain: no cold reward address - SKIPPING (set: $SCRIPT_NAME reward set 0x..)"
-            skipped="$skipped $chain"; continue
-        fi
         stale="$stale $chain"
     done
 
     if [ -z "$stale" ]; then
         echo "Nothing to do - no stale side chain to restart."
-        [ -n "$skipped" ] && echo "  (skipped, no cold reward:$skipped)"
         return 0
     fi
     echo "Will restart, one at a time:$stale"
@@ -1467,7 +1457,6 @@ migrate_apply()
     done
 
     echo; echo_ok "all stale side chains hardened"
-    [ -n "$skipped" ] && echo "  still on old flags (no cold reward):$skipped - set it, then '$SCRIPT_NAME <chain> restart'"
     echo "Verify:  $SCRIPT_NAME summary"
 }
 
@@ -1576,29 +1565,11 @@ migrate()
 
 all_start()
 {
-    local chain refused= arbiter_skipped=
+    local chain
     for chain in $(profile_chains); do
         "${chain}_installed" || continue
-        # a mining side chain with no cold reward address would refuse to start - don't
-        # half-attempt it; collect it and report at the end (never masquerade as healthy)
-        if ! require_cold_miner "$chain" >/dev/null 2>&1; then
-            echo_warn "$chain: not started - no cold reward address (set: $SCRIPT_NAME reward set 0x..)"
-            refused="$refused $chain"; continue
-        fi
-        if [ "$chain" == "arbiter" ] && [ -n "$refused" ]; then
-            echo_warn "arbiter: not started - it would respawn-loop while these are down:$refused"
-            arbiter_skipped=1; continue
-        fi
         "${chain}_start"
     done
-    if [ -n "$refused" ]; then
-        echo
-        echo_error "these chains did NOT start:$refused"
-        echo "  set a cold reward address, then retry:  $SCRIPT_NAME reward set 0xYOURCOLDADDRESS"
-        [ -n "$arbiter_skipped" ] && echo "  arbiter was skipped too; after the retry run:  $SCRIPT_NAME arbiter start"
-        return 1
-    fi
-    return 0
 }
 
 all_stop()
@@ -3026,7 +2997,7 @@ esc_start()
     mkdir -p $SCRIPT_PATH/esc/logs/
 
     if [ -f ~/.config/elastos/esc.txt ]; then
-        require_cold_miner esc || return
+        warn_hot_miner esc
         if [ -f $SCRIPT_PATH/esc/data/miner_address.txt ]; then
             local ESC_OPTS="$ESC_OPTS --pbft.miner.address $SCRIPT_PATH/esc/data/miner_address.txt"
         fi
@@ -3109,7 +3080,7 @@ eco_start()
     mkdir -p $SCRIPT_PATH/eco/logs/
 
     if [ -f ~/.config/elastos/eco.txt ]; then
-        require_cold_miner eco || return
+        warn_hot_miner eco
         if [ -f $SCRIPT_PATH/eco/data/miner_address.txt ]; then
             local ECO_OPTS="$ECO_OPTS --pbft.miner.address $SCRIPT_PATH/eco/data/miner_address.txt"
         fi
@@ -3181,7 +3152,7 @@ pgp_start()
     mkdir -p $SCRIPT_PATH/pgp/logs/
 
     if [ -f ~/.config/elastos/pgp.txt ]; then
-        require_cold_miner pgp || return
+        warn_hot_miner pgp
         if [ -f $SCRIPT_PATH/pgp/data/miner_address.txt ]; then
             local PGP_OPTS="$PGP_OPTS --pbft.miner.address $SCRIPT_PATH/pgp/data/miner_address.txt"
         fi
@@ -3254,7 +3225,7 @@ pg_start()
     mkdir -p $SCRIPT_PATH/pg/logs/
 
     if [ -f ~/.config/elastos/pg.txt ]; then
-        require_cold_miner pg || return
+        warn_hot_miner pg
         if [ -f $SCRIPT_PATH/pg/data/miner_address.txt ]; then
             local PG_OPTS="$PG_OPTS --pbft.miner.address $SCRIPT_PATH/pg/data/miner_address.txt"
         fi
@@ -3974,7 +3945,6 @@ esc_update()
 
     local PID=$(pgrep -f '^\./esc .*--rpc ')
     if [ $PID ]; then
-        guard_cold_for_update esc || return 1
         esc_stop
     fi
 
@@ -4010,7 +3980,6 @@ eco_update()
 
     local PID=$(pgrep -f '^\./eco .*--rpc ')
     if [ $PID ]; then
-        guard_cold_for_update eco || return 1
         eco_stop
     fi
 
@@ -4046,7 +4015,6 @@ pgp_update()
 
     local PID=$(pgrep -f '^\./pgp .*--rpc ')
     if [ $PID ]; then
-        guard_cold_for_update pgp || return 1
         pgp_stop
     fi
 
@@ -4082,7 +4050,6 @@ pg_update()
 
     local PID=$(pgrep -f '^\./pg .*--rpc ')
     if [ $PID ]; then
-        guard_cold_for_update pg || return 1
         pg_stop
     fi
 
@@ -5136,7 +5103,7 @@ EOF
     mkdir -p $SCRIPT_PATH/eid/logs/
 
     if [ -f ~/.config/elastos/eid.txt ]; then
-        require_cold_miner eid || return
+        warn_hot_miner eid
         if [ -f $SCRIPT_PATH/eid/data/miner_address.txt ]; then
             local EID_OPTS="$EID_OPTS --pbft.miner.address $SCRIPT_PATH/eid/data/miner_address.txt"
         fi
@@ -5361,7 +5328,6 @@ eid_update()
 
     local PID=$(pgrep -f '^\./eid .*--rpc ')
     if [ $PID ]; then
-        guard_cold_for_update eid || return 1
         eid_stop
     fi
 
