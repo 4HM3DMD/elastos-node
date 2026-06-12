@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.9 - harden also closes the oracle and arbiter RPC ports
+
+### Changed
+- `harden` (and the automatic firewall close in `migrate`/`update_script`) now also closes the crosschain oracle HttpJsonPorts (`20632`, `20642`, `20652`, `20672`) and the arbiter RPC port (`20536`), in addition to the EVM and ela RPC/WS ports. A live audit found these bound to `0.0.0.0` and open in the firewall on an upstream node, even though they are local-only services (the local geth and arbiter reach them over loopback). The arbiter P2P port (`20538`) and all chain P2P/consensus ports stay open.
+
 ## v1.0.0-rc.8 - Automatic firewall hardening, and cleaner status
 
 ### Added

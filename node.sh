@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.8"
+ELASTOS_NODE_VERSION="1.0.0-rc.9"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -1161,9 +1161,11 @@ firewall()
     sudo ufw status verbose
 }
 
-# RPC/WS ports that must never be reachable from the internet. Local tooling (oracle,
-# arbiter, CLI) reaches the node over loopback, which a host firewall never blocks.
-RPC_FIREWALL_PORTS="20336 20635 20636 20645 20646 20655 20656 20675 20676"
+# Local-only service ports that must never be reachable from the internet: EVM RPC/WS,
+# the ela RPC, the crosschain oracle HttpJsonPorts, and the arbiter RPC. Every one is
+# reached over loopback by the local geth / arbiter / CLI, which a host firewall never
+# blocks. P2P + consensus ports (the X8/X9 ports, and arbiter P2P 20538) stay OPEN.
+RPC_FIREWALL_PORTS="20336 20635 20636 20645 20646 20655 20656 20675 20676 20536 20632 20642 20652 20672"
 
 # harden_firewall: close public access to the RPC/WS ports. Safe, reversible, idempotent,
 # and it never restarts a daemon - so syncing and consensus are untouched. Returns 0.
