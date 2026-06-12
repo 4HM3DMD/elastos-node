@@ -1,250 +1,211 @@
 # Changelog
 
-## v0.9.8 — Code-review fixes (hardening the v0.9.7 fixes)
+All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
-A multi-agent review of v0.9.7 found seven issues — all fixed here, each verified with isolated function tests.
+## v1.0.0-rc.1 - Documentation release
 
-- **The ELA-restart guard could be bypassed by the environment.** `FORCE_ELA` was never reset, so a stray `export FORCE_ELA=1` (a leftover, a cron `env`, `/etc/environment`) silently re-enabled `node.sh restart` restarting the mainchain. It's now reset at startup — only `--force` enables it.
-- **`restart` now reports partial failures.** `all_restart` aggregates per-chain results and exits non-zero if any chain failed (matching what `start` already did), so a failed side-chain restart isn't hidden behind a later success.
-- **Prompts honor piped answers again.** The profile / network / orphan-config prompts no longer sniff the TTY — they read piped input when present and fall back to a safe default only on real end-of-input. Fixes a regression where `… | node.sh … init` could silently pick the wrong network.
-- **`EVM_RPC_BIND` is now validated and persistable.** The bind resolves from the env var **or** a persistent `~/.config/elastos/evm_rpc_bind` file, and an invalid value falls back to `127.0.0.1` (fail-closed — a typo can never bind somewhere unintended). The drain fix (no `--unlock`/`personal`) is independent of this.
-- **The "RPC bound to …" notice only prints once the daemon is actually up** — no more narrating a bind for a chain that just failed to start.
-- **Sponsors fetch can't stall the mainchain.** `curl` now aborts a stalled transfer in ~30s (`--speed-limit`/`--speed-time`) instead of waiting out the full timeout, with clearer "one-time ~28MB, safe to wait" guidance.
-- **De-duplicated EVM logic.** New `EVM_CHAINS` constant + `is_evm_chain` / `evm_rpc_bind` / `guard_cold_for_update` helpers replace copy-pasted chain lists and guards (single source of truth).
+Release candidate for v1.0.0. No functional script changes other than the version string.
 
-## v0.9.7 — Compatibility-audit fixes (safe drop-in for upstream)
+### Documentation
+- Rewrote `README.md` as a complete reference: installation, quick start, deployment profiles, full command tables, security model, migration, updating, file locations.
+- Rewrote `SECURITY.md`: default posture, RPC bind override, remote-access guidance, full port table, vulnerability reporting.
+- Added `docs/COMPARISON.md`: a feature and security comparison against the upstream `elastos/Elastos.Node` runner.
+- Added `docs/MIGRATION.md`: the step-by-step procedure for moving an existing installation onto this fork, including verification and rollback.
+- Normalized this changelog to a consistent, neutral format.
 
-A 44-agent compatibility audit (this fork vs the official `elastos/Elastos.Node`) confirmed a **pure file-swap is zero-downtime**, and surfaced the things that could surprise an operator the moment they run a command afterward. This release fixes them.
+### Status
+- Feature-complete against the project's security and operations plans. Field validation on a clean Ubuntu host is the remaining step before v1.0.0.
 
-**Safety regressions**
-- `restart` / `ela restart` no longer restart the **ELA mainchain** by default — it would interrupt council consensus. Pass `--force` (or `--include-ela`) to override.
-- `restart` and `update` now **check the cold reward address before stopping** a mining side chain, so a miner is never stopped-then-stranded — it's left running with a clear message instead.
-- `migrate --apply` now hardens **eco/pgp** too (was esc/eid/pg only), so no live side chain is left on public `0.0.0.0` + `--unlock` while it reports success.
-- Migration rollback snapshots use a unique suffix (no same-second collision).
+## v0.9.8 - Review fixes for v0.9.7
 
-**Fail-loud — the hardening is no longer silent**
-- Every EVM start prints a one-line notice that RPC/WS is bound to `127.0.0.1` (it was public `0.0.0.0` on upstream).
-- `start` now collects side chains that refused to start (missing cold address) and **exits non-zero** with a summary, instead of letting a down miner look like a healthy fleet.
+Seven issues found in a code review of v0.9.7, each verified with isolated function tests.
 
-**Reversibility + robustness**
-- New `EVM_RPC_BIND` env (default `127.0.0.1`) to deliberately re-expose read-only RPC behind a firewall, with a loud per-start warning. The drain fix — no `--unlock`, no `personal` API — stays regardless of bind address.
-- The `sponsors` download and version probe now have `curl` timeouts, so `ela start` can't hang on a network blip.
-- `status` falls back to the **full classic dump when piped** (non-TTY), so existing wrapper/cron scripts that parse the old per-chain output keep working.
+### Fixed
+- `FORCE_ELA` is reset at startup. Previously an exported `FORCE_ELA=1` in the environment could silently re-enable main-chain restarts; now only the `--force` flag enables them.
+- `restart` aggregates per-chain results and exits non-zero if any chain failed, matching the behavior of `start`.
+- Interactive prompts (profile, network, orphan-config) read piped input when present and fall back to a safe default only at end of input. This restores correct behavior for piped invocations of `init`.
+- `EVM_RPC_BIND` is validated, and can be persisted in `~/.config/elastos/evm_rpc_bind`. An invalid value falls back to `127.0.0.1`.
+- The RPC bind notice is printed only after the daemon is confirmed running.
+- The `sponsors` download aborts a stalled transfer after approximately 30 seconds (`--speed-limit` / `--speed-time`) instead of waiting for the full timeout.
 
-**Automation safety**
-- Interactive prompts (profile, network, orphan-config, `uninstall`, `migrate --apply`) are now TTY-guarded: in a non-interactive shell they take the safe default or refuse cleanly instead of blocking. `uninstall` refuses to delete unattended.
+### Changed
+- Added the `EVM_CHAINS` constant and the `is_evm_chain`, `evm_rpc_bind`, and `guard_cold_for_update` helpers, replacing duplicated chain lists and guards.
 
-## v0.9.6 — `status` is the familiar labeled view again, minus the clutter
+## v0.9.7 - Compatibility audit fixes
 
-Operator feedback: the compact cards lost the readable, **labeled** layout of the classic status. v0.9.6 brings that back — `node.sh status` now shows each chain's own status block, **one labeled field per line, aligned**, with only the noise removed:
+A compatibility audit against the official `elastos/Elastos.Node` confirmed that a file swap is a zero-downtime operation, and identified the following issues, fixed in this release.
 
-- **Kept** (labeled, like before): version · state, `Address`, `Public Key`, `Height`, `#Peers`, `Uptime`, `RAM`, `Disk`, and the full governance block — `BPoS Name / State / Staked / Votes / Rewards`, `CRC Name / State`.
-- **Removed** (the clutter): `Balance`, `PID`, `#Files`, `#TCP`, the TCP/UDP port lists.
-- One blank line between chains. `node.sh <chain> status --verbose` still shows the complete dump (everything, including the removed fields); `node.sh summary` / `ps` is still the one-row glance.
+### Safety
+- `restart` and `ela restart` no longer restart the ELA main chain by default, since that interrupts council consensus. The `--force` (or `--include-ela`) flag overrides this.
+- `restart` and `update` check the cold reward address before stopping a mining side chain. A chain that could not be restarted is left running, with a message.
+- `migrate --apply` covers the eco and pgp chains in addition to esc, eid, and pg.
+- Migration rollback snapshots use a unique suffix to avoid same-second collisions.
 
-## v0.9.5 — Status cards now show the council info (and read cleaner)
+### Visibility
+- Every EVM chain start prints a one-line notice of the RPC/WS bind address.
+- `start` collects side chains that refused to start (missing cold reward address) and exits non-zero with a summary.
 
-The card is now built from each chain's own status, so it keeps the **important** fields and drops only the noise:
-- **The ELA card shows the council / governance line** — BPoS (or CRC) **name · state · votes · rewards** — plus the **address** and the **full public key** (for registration). When unregistered it says so and points at `register-bpos` / `register-crc`.
-- Side chains show the **cold/hot reward**; the arbiter shows its **bridge heights** (spv · esc · eid · pg).
-- Still dropped: `Balance`, `#Files`, `#TCP`, the TCP/UDP port lists.
+### Compatibility
+- New `EVM_RPC_BIND` environment variable (default `127.0.0.1`) for deliberately serving RPC on another interface. The removal of `--unlock` and the `personal` namespace applies regardless of the bind address.
+- The `sponsors` download and the version probe have `curl` timeouts, so `ela start` cannot hang on a network failure.
+- `status` falls back to the full classic output when not attached to a TTY, so existing scripts that parse the old per-chain output keep working.
 
-## v0.9.4 — `status` redesigned as clean per-chain cards
+### Automation
+- Interactive prompts (profile, network, orphan-config, `uninstall`, `migrate --apply`) are TTY-guarded: in a non-interactive shell they take the safe default or refuse cleanly. `uninstall` refuses to delete unattended.
 
-- **`node.sh status` now shows a compact 2-line card per chain** with the *useful* info — health verdict, version, peers, height, and `up · ram · disk` (+ the cold/hot reward for side chains) — and **drops the noise** (`Balance`, `#Files`, `#TCP`, the TCP/UDP port lists).
-- The three views now layer cleanly:
-  - `node.sh summary` / `ps` → one row per chain (the glance)
-  - `node.sh status` → the per-chain cards (useful detail, compact)
-  - `node.sh status --verbose` (or `<chain> status --verbose`) → the old full dump
-- `node.sh <chain> status` shows that chain's card; `--json` unchanged.
+## v0.9.6 - Labeled status view
 
-## v0.9.3 — No more `./node.sh`, and `status` is glanceable
+### Changed
+- `node.sh status` shows each chain's status as a labeled block, one field per line, aligned. Retained fields: version, state, `Address`, `Public Key`, `Height`, `#Peers`, `Uptime`, `RAM`, `Disk`, and the governance block (`BPoS Name / State / Staked / Votes / Rewards`, `CRC Name / State`). Removed fields: `Balance`, `PID`, `#Files`, `#TCP`, and the TCP/UDP port lists.
+- `node.sh <chain> status --verbose` shows the complete dump, including the removed fields. `node.sh summary` / `ps` remains the one-row-per-chain view.
 
-- **Global `node.sh` command.** `setup` installs a wrapper at `/usr/local/bin/node.sh`, so you run `node.sh status` from **anywhere** — no `./` and no full path (works immediately, no re-login). `SCRIPT_PATH` now resolves through symlinks/wrappers so the real install dir is always found.
-- **`status` is the clean summary by default.** `node.sh status` now shows the one-row-per-chain health view (height / peers / sync + legend + attention line) instead of the ~180-line per-chain wall. The old detailed dump is still available as `node.sh status --verbose`; `node.sh <chain> status` shows one chain (add `--pretty` for the health-first single-chain view).
-- Post-`setup` next-steps use the global `node.sh`.
+## v0.9.5 - Governance information in status
 
-## v0.9.2 — Robustness: stop the half-init / broken-start footgun
+### Changed
+- The ELA status includes the governance line (BPoS or CRC name, state, votes, rewards), the address, and the full public key. An unregistered node is reported as such, with a pointer to `register-bpos` / `register-crc`.
+- Side chains show the configured reward address. The arbiter shows its bridge heights (spv, esc, eid, pg).
 
-Fixes the failure mode where a leftover `~/.config/elastos/*.txt` (from an `rm -rf ~/node` that didn't also clear the config) made `init` bail half-way and `start` launch a broken, config-less `ela`.
+## v0.9.4 - Status cards
 
-- **`init` now detects orphaned keystore passwords** — a `~/.config/elastos/<chain>.txt` with no matching keystore — and offers to clear them so init can proceed (instead of the cryptic `<chain>.txt exists` and a half-install).
-- **`start` refuses an uninitialized `ela`** (no `config.json`) with a clear "run init" message, instead of launching a broken daemon that spams `config.json: No such file`.
-- **Post-`setup` next-steps use the full path** (`$SCRIPT_PATH/node.sh …`) and the `reward set` command, so the suggested commands actually run (no more `node.sh: command not found`).
-- Reminder: use **`node.sh uninstall`** (stops processes **and** clears `~/.config/elastos`) for a clean teardown — `rm -rf node` alone leaves the config behind and the daemon running.
+### Changed
+- `node.sh status` was redesigned as a compact per-chain card showing health verdict, version, peers, height, uptime, RAM, and disk. Superseded by the labeled view in v0.9.6.
+- The three status views are layered: `summary` / `ps` (one row per chain), `status` (per-chain detail), `status --verbose` (complete dump).
 
-## v0.9.1 — Auto-fetch the ELA `sponsors` file (no more mainchain stall)
+## v0.9.3 - Global command
 
-- The ELA mainchain needs a `sponsors` file (a `height → sponsor` lookup) to validate blocks past the RecordSponsor fork (~block 1.8M). The official runner never downloads it, so fresh nodes sync fine until ~1.8M and then **stall** with `sponsors file not exist!`. `ela_start` now **fetches it automatically** when missing — mainnet only, from the matching binary version with a `v0.9.9` fallback, with a clear warning if the download fails. Self-healing and one-time (~28 MB).
+### Added
+- `setup` installs a wrapper at `/usr/local/bin/node.sh`, so commands can be run from any directory without a path prefix. `SCRIPT_PATH` resolves through symlinks and wrappers to locate the installation directory.
 
-## v0.9.0 — Zero-downtime hardening apply (finishes the UX/migration roadmap)
+### Changed
+- `node.sh status` defaults to the summary view (superseded by v0.9.6). The detailed output remains available via `--verbose`.
 
-- **`node.sh migrate --apply [--yes]`** — applies the hardened RPC binding with **near-zero downtime**:
-  - restarts **only stale side chains** (`esc`/`eid`/`pg`), **one at a time**, and waits for each to come back on `127.0.0.1` (verified via its live command line) **before** restarting the next;
-  - **never restarts the ELA mainchain** — your council producer keeps signing throughout, so consensus is uninterrupted;
-  - **skips** any chain with no cold reward address (it would refuse to start) and **stops on failure**, so you investigate before continuing;
-  - a single node can't know fleet quorum, so it reminds you to coordinate across the council.
-- The version string now tracks the release (`v0.9.0`).
+## v0.9.2 - Initialization and start guards
 
-## v0.8.5 — `migrate` (move onto the fork safely)
+### Fixed
+- `init` detects an orphaned keystore password (`~/.config/elastos/<chain>.txt` without a matching keystore, typically left behind by removing `~/node` without clearing the configuration) and offers to clear it so initialization can proceed.
+- `start` refuses to launch an uninitialized `ela` (no `config.json`) and directs the operator to `init`, instead of starting a daemon that cannot run.
+- Post-`setup` instructions print full paths and the `reward set` command.
 
-- **`node.sh migrate [--dry-run]`** — move an existing install (an older fork version **or** the official Elastos `node.sh`) onto this hardened fork:
-  - **detects the source** (old-fork / official-upstream / fresh) from the profile file + running processes;
-  - **preserves what matters** — the ELA keystore, chaindata, and config are never touched; it **aborts** if `keystore.dat` is missing or `node.json` is invalid;
-  - **infers the profile** for an upstream node (from what's installed) and writes it;
-  - **bridges the cold-miner gap** — warns if a mining chain has no cold reward address (this fork refuses to mine to a hot key);
-  - **snapshots for rollback** (`node.sh.bak.<ts>`, `~/.config/elastos.bak.<ts>`);
-  - **never auto-restarts** — it hands you a staged, one-chain-at-a-time restart plan (the hardened RPC binding only applies after a restart), so you stay above BFT quorum;
-  - **`--dry-run`** previews everything and changes nothing.
+## v0.9.1 - Automatic sponsors file
 
-## v0.8.4 — Output polish (the dashboard explains itself)
+### Fixed
+- The ELA main chain requires a `sponsors` file (a height-to-sponsor lookup) to validate blocks past the RecordSponsor fork at approximately block 1,801,550. The upstream runner does not download this file, so fresh nodes stall at that height. `ela_start` now downloads the file automatically when missing (mainnet only), from the distribution matching the installed binary version, and prints a warning if the download fails. The download is one-time, approximately 28 MB.
 
-- `summary` / `ps` now print a **glyph legend** (`● healthy   ◐ syncing/attention   ○ stopped`) and an **attention line** that names exactly which chains need it — e.g. `⚠ attention: esc(no-peers) eid(syncing) pg(stopped)`. No more guessing what `◐` means or scanning rows.
-- Service rows (oracles, arbiter) show `-` for height/peers instead of a misleading `?` (they have no block height).
+## v0.9.0 - Staged hardening apply
 
-## v0.8.3 — Help & onboarding (discoverable at last)
+### Added
+- `node.sh migrate --apply [--yes]`: applies the hardened RPC binding with minimal downtime. Restarts only side chains running with stale flags, one at a time, and waits for each to return on `127.0.0.1` (verified from the live process command line) before restarting the next. The ELA main chain is never restarted. Chains without a cold reward address are skipped and reported. The procedure stops on the first failure.
 
-- **`help` now lists every command.** The old help grep-generated only *chain names* — `summary`, `health`, `profile`, `setup`, `reward`, and all the modern verbs were invisible. It's now a clean, grouped, modern-first reference.
-- **Honest per-chain help.** `node.sh <chain>` shows that chain's real commands (the old `ela_usage` advertised `watch`/`mon` that don't exist; `pg` had no help at all). ELA lists its governance commands; side chains show the cold-reward hint.
-- **No more silent success.** `node.sh <chain>` with no command now prints help and **exits non-zero** (was exit `0` — a scripting landmine). Unknown command/chain errors also exit non-zero, with a richer did-you-mean across both verbs and chains.
+## v0.8.5 - Migration command
 
-## v0.8.2 — Modern command layer (docker/gh-style verbs)
+### Added
+- `node.sh migrate [--dry-run]`: moves an existing installation (an older version of this fork, or the official `elastos/Elastos.Node`) onto this fork.
+  - Detects the source installation from the profile file and running processes.
+  - Preserves the ELA keystore, chain data, and configuration. Aborts if `keystore.dat` is missing or `node.json` is invalid.
+  - Infers and writes the deployment profile for an upstream installation.
+  - Warns if a mining chain has no cold reward address.
+  - Writes rollback snapshots (`node.sh.bak.<timestamp>`, `~/.config/elastos.bak.<timestamp>`).
+  - Never restarts processes; it prints a staged one-chain-at-a-time restart plan instead.
+  - `--dry-run` previews all of the above and changes nothing.
 
-All additive — **every old command still works byte-for-byte**; the modern verbs are aliases over the same dispatch.
+## v0.8.4 - Summary output
 
-### Global
-- `up` (= `start`), `down` (= `stop`), `ps` (= `summary`)
-- `restart` — restart the profile, one chain at a time
-- `logs [<chain>] [-f]` — tail a chain's most recent log (follow with `-f`)
-- `version` / `--version` / `-v` — fork + chain versions
-- `reward [set <0x…>]` — show, or set the cold miner address for **all side chains at once**
-- `uninstall` — stop everything + remove the install/config (backs up the keystore first; requires typing `DELETE`)
+### Changed
+- `summary` / `ps` print a glyph legend and an attention line naming the chains that need attention, for example `attention: esc(no-peers) eid(syncing) pg(stopped)`.
+- Service rows (oracles, arbiter) show `-` for height and peers, since they have no block height.
 
-### Per-chain (`node.sh <chain> <verb>`)
-- `up` / `down` / `restart` / `logs [-f]` / `rpc` (= `jsonrpc`) / `version`
-- kebab-case accepted everywhere (`node.sh ela register-bpos` == `register_bpos`)
+## v0.8.3 - Help system
 
-## v0.8.1 — Fix: arbiter init failed on the removed ECO chain
+### Fixed
+- `help` lists every command. The previous help only listed chain names; `summary`, `health`, `profile`, `setup`, `reward`, and the modern verbs were not discoverable.
+- Per-chain help shows the commands that exist for that chain. The upstream `ela` help advertised `watch` and `mon`, which do not exist; `pg` had no help.
+- `node.sh <chain>` with no command prints help and exits non-zero (previously exit 0). Unknown commands and chains also exit non-zero, with suggestions.
 
-- `arbiter_init` still hard-required `eco-oracle` (and `pgp-oracle`) to be initialized, and listed **ECO** in its cross-chain `SideNodeList` — so on a full-stack node the arbiter step failed with `ERROR: eco-oracle not initialized` even though every other chain set up fine. The ECO/PGP removal is now complete in the arbiter path (preflight checks + both the testnet and mainnet `SideNodeList` configs now contain only ESC / EID / PG).
+## v0.8.2 - Modern command layer
 
-## v0.8.0 — Turnkey setup (deps, swap, firewall, autostart)
+All additions are aliases over the existing dispatch; every upstream command continues to work unchanged.
 
-### Onboarding
-- **`node.sh setup`** — one command to prepare a fresh Ubuntu box and initialize the node: installs dependencies, adds a 16 GB swap, **opens the firewall**, enables `@reboot` autostart, then runs `init`. Profile-aware, idempotent, asks before making changes. This replaces the official guide's *manual* deps / swap / `ufw` / cron steps.
-- **`node.sh firewall`** — open just the peer + consensus ports for the active profile:
-  - mainchain: `20338`, `20339`
-  - full: + `20638/20648/20678` (tcp+udp) and `20639/20649/20679`
-- **RPC/WS ports are deliberately NOT opened** (they bind to `127.0.0.1`) — unlike the upstream guide, which exposes `20336/20636/20646/20676` to the internet.
+### Added
+- Global: `up` (= `start`), `down` (= `stop`), `ps` (= `summary`), `restart`, `logs [<chain>] [-f]`, `version` / `--version` / `-v`, `reward [set <0x..>]`, `uninstall` (stops processes, backs up the keystore, removes the installation after typed confirmation).
+- Per-chain: `up`, `down`, `restart`, `logs [-f]`, `rpc` (= `jsonrpc`), `version`.
+- Kebab-case command names are accepted everywhere (`register-bpos` is equivalent to `register_bpos`).
 
-## v0.7.1 — Fix: no more running a command twice on first run
+## v0.8.1 - Arbiter initialization fix
 
-- The **first** invocation of any command previously only selected the network, wrote `~/.config/elastos/node.json`, and **exited** — forcing you to re-run (e.g. `init` had to be run twice). It now writes the config and **continues with the requested command in one shot**.
+### Fixed
+- `arbiter_init` required the decommissioned `eco-oracle` and `pgp-oracle` services and listed ECO in its cross-chain `SideNodeList`, causing initialization to fail on a full-stack node. The preflight checks and both the mainnet and testnet `SideNodeList` configurations now contain only ESC, EID, and PG.
 
-## v0.7.0 — Post-spawn check for oracles
+## v0.8.0 - Turnkey setup
 
-### Accuracy
-- The post-spawn health check now also covers the **oracle services** (esc/eid/pg + dormant eco/pgp oracles). `start` verifies every chain *and* oracle actually stays up, reporting any dead-on-launch process immediately with its log tail.
+### Added
+- `node.sh setup`: prepares a fresh Ubuntu host and initializes the node in one command: installs dependencies, adds a 16 GB swap file, configures the firewall, enables autostart on reboot, then runs `init`. Profile-aware, idempotent, and asks before making system changes.
+- `node.sh firewall`: opens the peer and consensus ports for the active profile (mainchain: `20338`, `20339`; full: additionally `20638`, `20639`, `20648`, `20649`, `20678`, `20679`). RPC and WebSocket ports are not opened; they bind to `127.0.0.1`.
 
-### Roadmap (next — both externally gated)
-- `set -o pipefail` sweep — pending a real Linux smoke test (won't ship blind).
-- Binary-download checksum — needs upstream-published checksums at `download.elastos.io`.
+## v0.7.1 - Single-invocation first run
 
-## v0.6.0 — Post-spawn health check
+### Fixed
+- The first invocation of any command previously wrote `~/.config/elastos/node.json` and exited, requiring the command to be run a second time. It now writes the configuration and continues with the requested command.
 
-### Accuracy
-- After `start`, each chain daemon (`ela`, `esc`, `eid`, `pg`, and the dormant `eco`/`pgp`) is **verified to actually stay up**. If it died on launch, `start` now prints a clear failure and the **last lines of its log** immediately — instead of leaving the operator to notice a `stopped` status later.
+## v0.7.0 - Oracle start verification
 
-### Roadmap (next)
-- Extend the post-spawn check to the oracle services.
-- `set -o pipefail` sweep (pending Linux verification).
-- Binary-download checksum (needs upstream-published checksums).
+### Added
+- The post-start verification covers the oracle services. `start` verifies that every chain and oracle process remains running, and reports a process that exited immediately, with the last lines of its log.
 
-## v0.5.0 — Honest status (no more fake zeros)
+## v0.6.0 - Chain start verification
 
-### Accuracy
-- The legacy per-chain `status` now uses the correct, error-aware parser everywhere: a height or peer count from a **down or unreachable RPC shows `N/A`**, not a fake `0`. A genuine `0` (block 0, zero peers) still shows `0` — so the two are finally distinguishable. Correct hex parsing (`hex_to_dec`) replaces the `$(( ))` that silently turned errors into zero. Applies to `esc` / `eid` / `pg` (and the dormant `eco` / `pgp`) heights + peers, and `ela` peers.
+### Added
+- After `start`, each chain daemon is verified to still be running. A daemon that exited on launch is reported immediately with the last lines of its log, instead of being discovered later through a stopped status.
 
-> Output note: the only change is in the **error case** (RPC unreachable), `0` → `N/A`. All normal values are unchanged.
+## v0.5.0 - Error-aware status values
 
-### Roadmap (next)
-- Post-spawn health check on `start` (surface a daemon that dies on launch).
-- `set -o pipefail` sweep (pending Linux verification).
-- Binary-download checksum.
+### Fixed
+- The per-chain `status` distinguishes RPC errors from real zero values. A height or peer count from an unreachable RPC shows `N/A`; a genuine `0` still shows `0`. Hex values are parsed with a dedicated converter, replacing arithmetic expansion that could misparse hex and leading-zero values. Applies to the esc, eid, and pg heights and peer counts, and to the ela peer count.
 
-## v0.4.0 — Scriptable health checks + sync progress
+## v0.4.0 - Health checks
 
-### Monitoring
-- **`node.sh health`** and **`node.sh <chain> health`** — a one-line verdict per chain with a **meaningful exit code** (`0` healthy; non-zero if stopped / syncing / no peers). Built for cron and alerting: `node.sh health && ok || alert`. `node.sh health` exits non-zero if *any* chain in the active profile is unhealthy.
+### Added
+- `node.sh health` and `node.sh <chain> health`: a one-line verdict per chain with a meaningful exit code (0 healthy; non-zero if stopped, syncing, or without peers). `node.sh health` exits non-zero if any chain in the active profile is unhealthy, which makes it usable from cron and alerting.
+- `<chain> status --pretty` shows a sync-progress line (`current / highest (NN%)`) while a chain is catching up.
 
-### UX
-- **`<chain> status --pretty`** now shows a **sync-progress line** (`current / highest (NN%)`) while a chain is catching up.
+## v0.3.0 - Summary dashboard and JSON output
 
-All additive — no change to existing output or commands.
+### Added
+- `node.sh summary` shows height and peers per chain, with sync-aware and peer-aware health indicators.
+- `node.sh <chain> status --pretty` reports height, peers, sync state, and flags a reward address that belongs to the node's local keystore.
+- `--json` output: `node.sh summary --json` (array) and `node.sh <chain> status --json` (object), each entry `{chain, installed, running, height, peers, sync, reward}`.
 
-### Roadmap (next)
-- Apply the correct parsing inside the legacy per-chain `status` (RPC-error → `N/A`, not `0`).
-- Post-spawn health check on `start` (surface a daemon that dies on launch).
-- `set -o pipefail` sweep (pending Linux verification).
-- Binary-download checksum.
+### Fixed
+- Status RPC calls are bounded with `curl --max-time 3`, so a status query cannot hang. Hex parsing uses a dedicated converter. An unreachable RPC is shown as unknown rather than `0`.
 
-## v0.3.0 — Real health dashboard + `--json`
-
-### Accuracy
-- New **timeout-bounded RPC substrate** (`curl --max-time 3`, so a status query can never hang) with **correct hex parsing** (`hex_to_dec` — no `$(( ))` octal/zero trap) and **error ≠ zero**: a down or unreachable RPC shows `?`, never a fake `0`.
-
-### UX (additive — legacy per-chain `status` output unchanged)
-- **`node.sh summary`** now shows **HEIGHT** and **PEERS** per chain, with sync- and peer-aware health glyphs (●/◐/○).
-- **`node.sh <chain> status --pretty`** now reports height, peers, sync state, and a **hot-wallet** flag on the reward address, above the full status.
-- **`--json`** machine-readable output: `node.sh summary --json` (array) and `node.sh <chain> status --json` (object), each `{chain, installed, running, height, peers, sync, reward}`.
-
-### Roadmap (next)
-- Network-tip / sync-% column (`eth_syncing` highestBlock + the ELA tip).
-- Apply the same correct parsing inside the legacy per-chain `status` (post-spawn health check too).
-- `set -o pipefail` sweep (pending verification on a Linux node).
-- Binary-download checksum (the remaining `# TODO: verify checksum`).
-
-## v0.2.0 — Safer + apple-grade UX
-
-### Security / safety
-- **Self-update targets the fork, not upstream.** `update_script` now pulls `4HM3DMD/elastos-node@main`, **verifies a published SHA-256 checksum** (`node.sh.sha256`), and runs `bash -n` on the download before installing. The hardening can no longer be silently reverted by an update.
-- **Mandatory cold reward address.** A mining chain refuses to start unless `<chain>/data/miner_address.txt` contains a valid `0x…` address, so block rewards can never fall back to this node's local account. Set one with:
-  ```bash
-  echo 0xYOURCOLDADDRESS > <chain>/data/miner_address.txt && chmod 600 <chain>/data/miner_address.txt
-  ```
-
-### UX — all additive (default output is unchanged for existing scripts)
-- **`node.sh summary`** — one row per chain in the active profile (the fleet glance), with health glyphs and a running/stopped count.
-- **`node.sh <chain> status --pretty`** — a health-first verdict banner above the normal status.
-- **Color is `NO_COLOR`- and TTY-aware**, with a `--no-color` flag.
-- **Did-you-mean** suggestions on an unknown chain or command, alongside the valid list.
-- **Guided `init`** — asks main-chain-only vs full stack the first time and persists the choice.
-
-### Roadmap (next)
-- Deeper `--pretty` / `--summary` columns: height vs network tip, peer quorum, hot-wallet flag — plus a `--json` mode, all with per-call `--max-time`.
-- Status-truth fixes in the legacy per-chain status (hex-height parse, RPC-error vs a real zero, post-spawn health check).
-- `set -o pipefail` sweep (pending verification on a Linux node).
-- Binary-download integrity (the remaining `# TODO: verify checksum` path).
-
----
-
-## v0.1.0 — Hardened fork
-
-First release of the hardened `node.sh`, forked from upstream `elastos/Elastos.Node`.
+## v0.2.0 - Verified self-update and cold rewards
 
 ### Security
-- **EVM RPC/WS exposure closed.** All EVM side-chain start paths (`esc`, `eid`, `pg`, and the dormant `eco`/`pgp`) now:
-  - bind `--rpcaddr` and `--wsaddr` to `127.0.0.1` (were `0.0.0.0`);
-  - drop `--unlock` and `--allow-insecure-unlock` — block sealing is unaffected because consensus signs with the dedicated PBFT/ELA keystore, not the EVM account;
-  - reduce `--rpcapi` to `eth,net,web3,txpool,pbft` (mining) / `eth,net,web3,txpool` (follower), removing `personal`, `db`, `miner`, and `admin`.
-- Net effect: the no-password `eth_sendTransaction` path reachable over public RPC is removed.
+- Self-update targets this repository instead of upstream, verifies the published SHA-256 checksum (`node.sh.sha256`), and runs `bash -n` on the download before installing. An update can no longer revert the hardening.
+- A mining chain refuses to start unless `<chain>/data/miner_address.txt` contains a valid address, so block rewards cannot fall back to the node's local account.
 
-### Accuracy
-- **Status no longer crashes a syncing node.** `ela status` previously called `dposv2rewardinfo` (all-address form), which can panic the ELA daemon during sync. It is now gated on `ela_synced` and reports `N/A` until fully synced.
+### Added
+- `node.sh summary`: one row per chain in the active profile, with health indicators and a running/stopped count.
+- `node.sh <chain> status --pretty`: a health verdict above the standard status.
+- Color output respects `NO_COLOR` and non-TTY contexts; `--no-color` flag.
+- Suggestions for misspelled chain and command names.
+- Guided `init`: asks for the deployment profile on first run and persists the choice.
 
-### Features
-- **Deployment profiles.** `mainchain` and `full` profiles, persisted to `~/.config/elastos/profile`, with a `--profile <p>` override and a `profile [set <p>]` command. Bulk commands act on the active profile's chains.
-- **`help` / `-h` / `--help`** top-level command.
+## v0.1.0 - Hardened fork
+
+First release, forked from `elastos/Elastos.Node`.
+
+### Security
+- All EVM side-chain start paths bind `--rpcaddr` and `--wsaddr` to `127.0.0.1` (previously `0.0.0.0`).
+- Removed `--unlock` and `--allow-insecure-unlock`. Block sealing is unaffected: consensus signs with the dedicated PBFT/ELA keystore, not the EVM account.
+- Reduced `--rpcapi` to `eth,net,web3,txpool,pbft` (mining) and `eth,net,web3,txpool` (follower), removing `personal`, `db`, `miner`, and `admin`.
+- Net effect: an unauthenticated `eth_sendTransaction` path reachable over public RPC no longer exists.
+
+### Fixed
+- `ela status` no longer calls `dposv2rewardinfo` on a syncing node. That call can panic the ELA daemon during synchronization. It is gated on a sync check and reports `N/A` until the node is synced.
+
+### Added
+- Deployment profiles `mainchain` and `full`, persisted to `~/.config/elastos/profile`, with a `--profile <p>` override and a `profile [set <p>]` command.
+- `help` / `-h` / `--help` top-level command.
 
 ### Removed
-- **ECO** side chain (and `eco-oracle`) removed from dispatch and from all profiles (decommissioned). The dormant `eco_*` functions remain in the source but are unreachable via the dispatcher.
+- The decommissioned ECO side chain and `eco-oracle` are removed from dispatch and from all profiles.

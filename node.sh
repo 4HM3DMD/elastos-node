@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="0.9.8"
+ELASTOS_NODE_VERSION="1.0.0-rc.1"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
