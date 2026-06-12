@@ -20,6 +20,8 @@ The bind address for EVM RPC and WebSocket endpoints can be changed deliberately
 
 An invalid value falls back to `127.0.0.1`. A non-loopback bind is reported at every chain start. The removal of `--unlock` and of the `personal` namespace applies regardless of the bind address.
 
+Note: binding to a single non-loopback address means the daemon no longer listens on `127.0.0.1`, so local tooling (`node.sh <chain> jsonrpc` and the RPC-derived status fields) will report `N/A`. If local tooling must keep working alongside a network bind, use `0.0.0.0` behind a firewall instead of a single external address.
+
 ## Remote access
 
 Do not expose the RPC or WebSocket ports to the internet. For remote monitoring or tooling, use an SSH tunnel or a VPN:

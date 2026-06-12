@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.2 - Final compatibility review fixes
+
+A five-reviewer compatibility audit of v1.0.0-rc.1 against the upstream runner confirmed command-surface, start-flag, init/update, and status-output parity, and found the following defects, all fixed and covered by isolated function tests.
+
+### Fixed
+- **Critical: `start`, `up`, `restart --force`, and the `@reboot` autostart refused to start the ELA main chain on every initialized node.** The cold-reward-address gate treated the ELA keystore password file as evidence of a mining configuration and demanded a `miner_address.txt` that never exists for ELA. The gate is now scoped to the EVM side chains only; ELA, the oracles, and the arbiter are never gated. Introduced in v0.9.7; the direct `ela start` command was unaffected.
+- `start` no longer hangs when side chains are refused for a missing cold reward address. The arbiter start loop (inherited from upstream) respawns until the arbiter stays up, which never happens while its dependencies are down; `start` now skips the arbiter in that case, reports it, and exits non-zero.
+- `--profile` given without a value caused an infinite busy loop in the argument parser. It now exits with an error message.
+- `remove_log` failed with `command not found` on a full-profile node: `pg-oracle_remove_log` did not exist. The function slot held a dead duplicate of `pg-oracle_update` operating on the pgp-oracle directories (inherited from upstream, where the same defect exists). The dead duplicate was replaced with a correct `pg-oracle_remove_log`.
+- `health` reported `healthy` for a chain whose daemon was running but whose RPC was unreachable. That state now reports `running (rpc unreachable)` and exits non-zero.
+- `status --pretty` was advertised but not wired to a handler; it now renders the health-first view.
+- The single-chain `status` in the piped (non-TTY) classic path no longer discards stderr, matching upstream diagnostics for automation that captures both streams.
+
+### Changed
+- `eco` and `eco-oracle` are directly addressable again (`node.sh eco stop`, `status`, `logs`), so an operator upgrading a host with a running ECO daemon retains managed control of it. ECO remains excluded from every profile and from all bulk commands.
+- `setup` now installs the 10-minute `compress_log` cron entry in addition to the `@reboot` autostart, and its deduplication recognizes both the absolute-path and the upstream tilde-path entry forms, preventing duplicate `@reboot` entries.
+
 ## v1.0.0-rc.1 - Documentation release
 
 Release candidate for v1.0.0. No functional script changes other than the version string.

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.1"
+ELASTOS_NODE_VERSION="1.0.0-rc.2"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -210,6 +210,7 @@ render_health()
     esac
     sy=$(chain_synced "$chain" 2>/dev/null)
     p=$(chain_peers  "$chain" 2>/dev/null)
+    if [ -z "$sy" ] || [ -z "$p" ]; then echo "$chain: running (rpc unreachable)"; return 1; fi
     [ "$sy" == "syncing" ]         && { echo "$chain: syncing";  return 1; }
     [ -n "$p" ] && [ "$p" == "0" ] && { echo "$chain: no peers"; return 1; }
     echo "$chain: healthy"; return 0
@@ -246,7 +247,7 @@ chain_pid()
 # classic view the operator preferred - just without the clutter.
 render_status_one()
 {
-    [ -t 1 ] || { "${1}_status" 2>/dev/null; return; }   # piped: emit the full classic dump
+    [ -t 1 ] || { "${1}_status"; return; }   # piped: full classic dump, stderr attached like upstream
     local out
     out=$("${1}_status" 2>/dev/null | grep -vE '^(Balance|PID|#Files|#TCP|TCP Ports|UDP Ports):')
     [ -n "$out" ] && printf '%s\n' "$out"
@@ -442,6 +443,7 @@ update_script()
 require_cold_miner()
 {
     local chain=$1
+    is_evm_chain "$chain" || return 0   # only EVM side chains mine; never gate ela / oracles / arbiter
     local pwfile=~/.config/elastos/${chain}.txt
     local addrfile=$SCRIPT_PATH/${chain}/data/miner_address.txt
     [ -f "$pwfile" ] || return 0   # not a mining node; nothing to enforce
@@ -1261,9 +1263,10 @@ setup()
     firewall
 
     echo; echo "-- 4/5 autostart on reboot --"
-    ( crontab -l 2>/dev/null | grep -vF "$SCRIPT_PATH/$SCRIPT_NAME start"
-      echo "@reboot $SCRIPT_PATH/$SCRIPT_NAME start" ) | crontab -
-    echo_ok "autostart enabled (@reboot)"
+    ( crontab -l 2>/dev/null | grep -vE "node\.sh[[:space:]]+(start|compress_log)[[:space:]]*$"
+      echo "@reboot $SCRIPT_PATH/$SCRIPT_NAME start"
+      echo "*/10 * * * * $SCRIPT_PATH/$SCRIPT_NAME compress_log" ) | crontab -
+    echo_ok "autostart enabled (@reboot) + log compression every 10 minutes"
     if printf '#!/bin/bash\nexec %s/%s "$@"\n' "$SCRIPT_PATH" "$SCRIPT_NAME" | sudo tee /usr/local/bin/node.sh >/dev/null 2>&1 && sudo chmod +x /usr/local/bin/node.sh 2>/dev/null; then
         echo_ok "global command installed - run 'node.sh <command>' from anywhere"
     else
@@ -1573,7 +1576,7 @@ migrate()
 
 all_start()
 {
-    local chain refused=
+    local chain refused= arbiter_skipped=
     for chain in $(profile_chains); do
         "${chain}_installed" || continue
         # a mining side chain with no cold reward address would refuse to start - don't
@@ -1582,12 +1585,17 @@ all_start()
             echo_warn "$chain: not started - no cold reward address (set: $SCRIPT_NAME reward set 0x..)"
             refused="$refused $chain"; continue
         fi
+        if [ "$chain" == "arbiter" ] && [ -n "$refused" ]; then
+            echo_warn "arbiter: not started - it would respawn-loop while these are down:$refused"
+            arbiter_skipped=1; continue
+        fi
         "${chain}_start"
     done
     if [ -n "$refused" ]; then
         echo
         echo_error "these chains did NOT start:$refused"
         echo "  set a cold reward address, then retry:  $SCRIPT_NAME reward set 0xYOURCOLDADDRESS"
+        [ -n "$arbiter_skipped" ] && echo "  arbiter was skipped too; after the retry run:  $SCRIPT_NAME arbiter start"
         return 1
     fi
     return 0
@@ -4901,145 +4909,9 @@ pgp-oracle_remove_log()
     remove_log $SCRIPT_PATH/pgp-oracle/logs/pgp-oracle_out-\*.log
 }
 
-pg-oracle_update()
+pg-oracle_remove_log()
 {
-    unset OPTIND
-    while getopts "ny" OPTION; do
-        case $OPTION in
-            n)
-                local NO_START_AFTER_UPDATE=1
-                ;;
-            y)
-                local YES_TO_ALL=1
-                ;;
-        esac
-    done
-
-    chain_prepare_stage pg-oracle '*.js'
-    if [ "$?" != "0" ]; then
-        return
-    fi
-
-    local PATH_STAGE=$SCRIPT_PATH/.node-upload/pg-oracle
-    local DIR_DEPLOY=$SCRIPT_PATH/pg-oracle
-
-    local PID=$(pgrep -fx 'node crosschain_pg.js')
-    if [ $PID ]; then
-        pg-oracle_stop
-    fi
-
-    mkdir -p $DIR_DEPLOY
-    cp -v $PATH_STAGE/*.js $DIR_DEPLOY/
-
-    if [ $PID ] && [ "$NO_START_AFTER_UPDATE" == "" ]; then
-        pg-oracle_start
-    fi
-}
-
-esc-oracle_update()
-{
-    unset OPTIND
-    while getopts "ny" OPTION; do
-        case $OPTION in
-            n)
-                local NO_START_AFTER_UPDATE=1
-                ;;
-            y)
-                local YES_TO_ALL=1
-                ;;
-        esac
-    done
-
-    chain_prepare_stage esc-oracle '*.js'
-    if [ "$?" != "0" ]; then
-        return
-    fi
-
-    local PATH_STAGE=$SCRIPT_PATH/.node-upload/esc-oracle
-    local DIR_DEPLOY=$SCRIPT_PATH/esc-oracle
-
-    local PID=$(pgrep -fx 'node crosschain_oracle.js')
-    if [ $PID ]; then
-        esc-oracle_stop
-    fi
-
-    mkdir -p $DIR_DEPLOY
-    cp -v $PATH_STAGE/*.js $DIR_DEPLOY/
-
-    if [ $PID ] && [ "$NO_START_AFTER_UPDATE" == "" ]; then
-        esc-oracle_start
-    fi
-}
-
-eco-oracle_update()
-{
-    unset OPTIND
-    while getopts "ny" OPTION; do
-        case $OPTION in
-            n)
-                local NO_START_AFTER_UPDATE=1
-                ;;
-            y)
-                local YES_TO_ALL=1
-                ;;
-        esac
-    done
-
-    chain_prepare_stage eco-oracle '*.js'
-    if [ "$?" != "0" ]; then
-        return
-    fi
-
-    local PATH_STAGE=$SCRIPT_PATH/.node-upload/eco-oracle
-    local DIR_DEPLOY=$SCRIPT_PATH/eco-oracle
-
-    local PID=$(pgrep -fx 'node crosschain_eco.js')
-    if [ $PID ]; then
-        eco-oracle_stop
-    fi
-
-    mkdir -p $DIR_DEPLOY
-    cp -v $PATH_STAGE/*.js $DIR_DEPLOY/
-
-    if [ $PID ] && [ "$NO_START_AFTER_UPDATE" == "" ]; then
-        eco-oracle_start
-    fi
-}
-
-
-pgp-oracle_update()
-{
-    unset OPTIND
-    while getopts "ny" OPTION; do
-        case $OPTION in
-            n)
-                local NO_START_AFTER_UPDATE=1
-                ;;
-            y)
-                local YES_TO_ALL=1
-                ;;
-        esac
-    done
-
-    chain_prepare_stage pgp-oracle '*.js'
-    if [ "$?" != "0" ]; then
-        return
-    fi
-
-    local PATH_STAGE=$SCRIPT_PATH/.node-upload/pgp-oracle
-    local DIR_DEPLOY=$SCRIPT_PATH/pgp-oracle
-
-    local PID=$(pgrep -fx 'node crosschain_pgp.js')
-    if [ $PID ]; then
-        pgp-oracle_stop
-    fi
-
-    mkdir -p $DIR_DEPLOY
-    cp -v $PATH_STAGE/*.js $DIR_DEPLOY/
-
-    if [ $PID ] && [ "$NO_START_AFTER_UPDATE" == "" ]; then
-        pgp-oracle_start
-    fi
+    remove_log $SCRIPT_PATH/pg-oracle/logs/pg-oracle_out-\*.log
 }
 
 pg-oracle_update()
@@ -6505,7 +6377,8 @@ PROFILE_OVERRIDE=
 UI_NO_COLOR=
 while true; do
     case "$1" in
-        --profile)  PROFILE_OVERRIDE="$2"; shift 2 ;;
+        --profile)  [ $# -ge 2 ] || { echo_error "--profile needs a value (mainchain|full)"; exit 1; }
+                    PROFILE_OVERRIDE="$2"; shift 2 ;;
         --no-color) UI_NO_COLOR=1; shift ;;
         *) break ;;
     esac
@@ -6597,6 +6470,8 @@ else
        [ "$1" != "esc-oracle" ] && \
        [ "$1" != "eid"        ] && \
        [ "$1" != "eid-oracle" ] && \
+       [ "$1" != "eco"        ] && \
+       [ "$1" != "eco-oracle" ] && \
        [ "$1" != "pgp"        ] && \
        [ "$1" != "pgp-oracle" ] && \
        [ "$1" != "pg"         ] && \
@@ -6669,6 +6544,7 @@ else
     if [ "$COMMAND" == "status" ]; then
         case "$1" in
             --verbose|-v|--all) ${CHAIN_NAME}_status ;;
+            --pretty)           render_pretty $CHAIN_NAME ;;
             --json)             render_json_one $CHAIN_NAME ;;
             *)                  render_status_one $CHAIN_NAME ;;
         esac
