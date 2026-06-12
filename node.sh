@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.4"
+ELASTOS_NODE_VERSION="1.0.0-rc.5"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -186,18 +186,6 @@ evm_reward_status()
     fi
 }
 
-# evm_sync_detail <chain>: "cur / high (P%)" while syncing, empty otherwise.
-evm_sync_detail()
-{
-    local r cur high
-    r=$(evm_rpc "$1" eth_syncing 2>/dev/null)
-    echo "$r" | jq -e '.result == false' >/dev/null 2>&1 && return 1
-    cur=$(hex_to_dec "$(echo "$r" | jq -r '.result.currentBlock // empty' 2>/dev/null)")
-    high=$(hex_to_dec "$(echo "$r" | jq -r '.result.highestBlock // empty' 2>/dev/null)")
-    [ -n "$cur" ] && [ -n "$high" ] && [ "$high" -gt 0 ] || return 1
-    printf '%s / %s (%s%%)\n' "$cur" "$high" "$(( cur * 100 / high ))"
-}
-
 # render_health <chain>: print a one-line verdict; exit 0 healthy, 1 if attention needed.
 # Designed for monitoring/cron: `node.sh esc health && ok || alert`.
 render_health()
@@ -303,43 +291,6 @@ render_summary()
         echo "  $(ui_yellow '⚠') attention:$issues"
     fi
     echo
-}
-# render_pretty <chain>: health-first verdict + key facts, then the full status.
-render_pretty()
-{
-    local chain=$1 glyph word h p sy rw
-    if ! "${chain}_installed" 2>/dev/null; then
-        printf '\n  %s  %s  %s\n\n' "$(ui_dim "$UI_DOT_OFF")" "$(ui_bold "$chain")" "$(ui_dim 'NOT INSTALLED')"
-        return
-    fi
-    if ! chain_running "$chain"; then
-        printf '\n  %s  %s  %s\n\n' "$(ui_yellow "$UI_DOT_OFF")" "$(ui_bold "$chain")" "$(ui_yellow 'STOPPED')"
-        "${chain}_status"; return
-    fi
-    h=$(chain_height "$chain" 2>/dev/null)
-    p=$(chain_peers  "$chain" 2>/dev/null)
-    sy=$(chain_synced "$chain" 2>/dev/null)
-    glyph=$(ui_green "$UI_DOT_OK"); word=$(ui_green 'HEALTHY')
-    [ "$sy" == "syncing" ]               && { glyph=$(ui_yellow "$UI_DOT_WARN"); word=$(ui_yellow 'SYNCING'); }
-    [ -n "$p" ] && [ "$p" == "0" ]       && { glyph=$(ui_red "$UI_DOT_WARN");    word=$(ui_red 'NO PEERS'); }
-    printf '\n  %s  %s  %s\n' "$glyph" "$(ui_bold "$chain")" "$word"
-    [ -n "$h" ] && printf '  height   %s\n' "$h"
-    if [ "$sy" == "syncing" ]; then
-        local _sd; _sd=$(evm_sync_detail "$chain" 2>/dev/null)
-        [ -n "$_sd" ] && printf '  sync     %s\n' "$_sd"
-    fi
-    [ -n "$p" ] && printf '  peers    %s\n' "$p"
-    case "$chain" in
-        esc|eco|pgp|pg|eid)
-            rw=$(evm_reward_status "$chain" 2>/dev/null)
-            case "$rw" in
-                hot)   printf '  reward   %s\n' "$(ui_red 'HOT WALLET - set a cold miner address')" ;;
-                unset) printf '  reward   %s\n' "$(ui_yellow 'not set')" ;;
-                cold)  printf '  reward   %s\n' "$(ui_green 'cold')" ;;
-            esac ;;
-    esac
-    echo
-    "${chain}_status"
 }
 
 # chain_health_json <chain> / render_json_one / render_json_all : machine-readable
@@ -6342,9 +6293,8 @@ chain_help()
     local chain=$1
     echo "Usage:  $SCRIPT_NAME $chain <command> [options]"
     echo
-    echo "  up | start     down | stop     restart     status [--pretty|--json]     health"
-    echo "  logs [-f]      init     update     version"
-    echo "  client         rpc | jsonrpc"
+    echo "  start   stop   restart   status [--json]   health   logs [-f]"
+    echo "  client   rpc   init   update   version"
     case "$chain" in
         ela)
             echo "  send           transfer"
@@ -6358,6 +6308,8 @@ chain_help()
             echo "  purge:         stop eco + eco-oracle and DELETE their data (chain is decommissioned)"
             ;;
     esac
+    echo
+    echo "  aliases: up=start   down=stop   rpc=jsonrpc   (kebab-case accepted)"
 }
 
 usage()
@@ -6367,31 +6319,34 @@ usage()
     echo "Usage:  $SCRIPT_NAME <command> [options]"
     echo "        $SCRIPT_NAME <chain> <command> [options]"
     echo
-    echo "SETUP & RUN  (acts on the active profile)"
+    echo "DAILY"
+    echo "  start | stop       start / stop every chain in the profile"
+    echo "  summary            one row per chain: state, height, peers (add --json)"
+    echo "  status             full status for the profile (--verbose for everything)"
+    echo "  logs [chain] [-f]  tail a chain's log"
+    echo "  health             exit-code health check (0 = all healthy; cron-friendly)"
+    echo
+    echo "SETUP"
     echo "  setup              prepare a fresh box + initialize (deps, swap, firewall, autostart)"
     echo "  init               download binaries + create the keystore"
-    echo "  up | start         start every chain in the profile"
-    echo "  down | stop        stop them"
-    echo "  restart            restart them, one chain at a time"
-    echo "  update             update the chain binaries"
     echo "  profile [set P]    choose what this node runs (mainchain | full)"
     echo "  firewall           open peer/consensus ports (RPC stays on 127.0.0.1)"
     echo "  reward [set 0x..]  cold miner reward address for the side chains"
     echo
-    echo "MONITOR"
-    echo "  ps | summary       one-row-per-chain health (add --json)"
-    echo "  status             full status for the profile"
-    echo "  health             exit-code health check (0 = all healthy)"
-    echo "  logs [chain] [-f]  tail a chain's log"
+    echo "MANAGE"
+    echo "  restart            restart the profile's chains, one at a time (ela needs --force)"
+    echo "  update             update the chain binaries"
+    echo "  migrate            move an upstream install onto this fork (--dry-run | --apply)"
+    echo "  uninstall          stop + remove the install (keystore backed up)"
     echo "  version | -v       fork + chain versions"
     echo
     echo "PER-CHAIN    $SCRIPT_NAME <chain> <command>"
-    echo "  up down restart status [--pretty|--json] health logs [-f]"
-    echo "  client  rpc  send  transfer  init  update  version"
-    echo "  run '$SCRIPT_NAME <chain>' to see a chain's full command list"
+    echo "  start stop restart status [--json] health logs [-f] client rpc init update version"
+    echo "  run '$SCRIPT_NAME <chain>' for that chain's full list (ela: governance; eco: purge)"
     echo
     echo "CHAINS       $(profile_chains 2>/dev/null || echo 'ela esc eid pg + oracles + arbiter')"
-    echo "MAINTAIN     set_cron   update_script   uninstall   set_path"
+    echo "ALIASES      up=start   down=stop   ps=summary   rpc=jsonrpc   (kebab-case accepted)"
+    echo "MAINTAIN     set_cron   update_script   set_path"
     echo "FLAGS        --profile <mainchain|full>   --no-color"
     echo
     ui_dim "  deploy:$SCRIPT_PATH  sha:$SCRIPT_SHA1  network:$CHAIN_TYPE"; echo
@@ -6584,7 +6539,6 @@ else
     if [ "$COMMAND" == "status" ]; then
         case "$1" in
             --verbose|-v|--all) ${CHAIN_NAME}_status ;;
-            --pretty)           render_pretty $CHAIN_NAME ;;
             --json)             render_json_one $CHAIN_NAME ;;
             *)                  render_status_one $CHAIN_NAME ;;
         esac

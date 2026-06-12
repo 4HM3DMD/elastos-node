@@ -119,7 +119,7 @@ where `<chain>` is one of `ela`, `esc`, `esc-oracle`, `eid`, `eid-oracle`, `pg`,
 | Command | Description |
 |---|---|
 | `start` / `up`, `stop` / `down`, `restart` | Process control |
-| `status [--pretty] [--json] [--verbose]` | Status in labeled, health-first, machine-readable, or complete form |
+| `status [--json] [--verbose]` | Status in labeled, machine-readable, or complete form |
 | `health` | Single-chain health check with exit code |
 | `logs [-f]` | Most recent log file |
 | `client` | Invoke the chain's CLI client |

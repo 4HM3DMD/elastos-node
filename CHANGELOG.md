@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.5 - Simplification
+
+Subtraction-only release. No command an operator uses changes behavior.
+
+### Removed
+- `status --pretty` and its renderer. The flag was unreachable dead code for six releases before v1.0.0-rc.2 wired it, which indicates it was not missed; `summary` covers the glance view and `status` the detail view. The flag now falls back to the standard labeled status, matching how the upstream script treats unknown status flags. The hot-wallet reward indicator remains visible in `status` and in the `--json` output.
+- The `evm_sync_detail` helper, whose only caller was the removed renderer.
+
+### Changed
+- `help` is reorganized into tiers: the five daily commands (`start`, `stop`, `summary`, `status`, `logs`, `health`) come first, followed by setup, management, and per-chain sections. Aliases (`up`, `down`, `ps`, `rpc`) are listed on a single line instead of duplicating command rows. `migrate` is now listed in `help` (it was previously only documented in the README).
+- Per-chain help received the same treatment.
+
 ## v1.0.0-rc.4 - Removal command for the decommissioned ECO chain
 
 ### Added
