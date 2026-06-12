@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.7 - Config lookup independent of the script filename
+
+### Fixed
+- The network config path was derived from the script's filename (`~/.config/elastos/<script-basename>.json`). When the script was run under any name other than `node.sh` (for example `node.sh.new` during a migration rehearsal), it looked for a config that does not exist, then prompted for the network and wrote a stray config file. The documented `migrate --dry-run` rehearsal is meant to be read-only and was not. The config path is now fixed to `~/.config/elastos/node.json` (the Elastos convention) regardless of the script's filename, so running the script under any name finds the existing config and changes nothing.
+
 ## v1.0.0-rc.6 - One-line installer
 
 ### Added

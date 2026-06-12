@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.6"
+ELASTOS_NODE_VERSION="1.0.0-rc.7"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -510,7 +510,10 @@ check_env_oracle()
 
 init_config()
 {
-    local CONFIG_FILE=~/.config/elastos/${SCRIPT_NAME%.*}.json
+    # the network config is always node.json (Elastos convention), independent of the
+    # script's filename - so running this as e.g. node.sh.new (migration rehearsal) still
+    # finds the existing config instead of prompting and writing a stray file.
+    local CONFIG_FILE=~/.config/elastos/node.json
 
     if [ -f $CONFIG_FILE ]; then
         echo_error "$CONFIG_FILE exist"
@@ -555,7 +558,10 @@ EOF
 
 load_config()
 {
-    local CONFIG_FILE=~/.config/elastos/${SCRIPT_NAME%.*}.json
+    # the network config is always node.json (Elastos convention), independent of the
+    # script's filename - so running this as e.g. node.sh.new (migration rehearsal) still
+    # finds the existing config instead of prompting and writing a stray file.
+    local CONFIG_FILE=~/.config/elastos/node.json
 
     if [ ! -f $CONFIG_FILE ]; then
         # First run: choose the network and write the config, then CONTINUE with the
