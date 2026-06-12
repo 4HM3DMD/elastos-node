@@ -50,6 +50,7 @@ These commands have no upstream equivalent:
 - `migrate [--dry-run]` detects an upstream or older-fork installation, preserves the keystore, chain data, and configuration, writes rollback snapshots, and never restarts or deletes anything.
 - `migrate --apply` applies the hardened RPC binding by restarting stale side chains one at a time, verifying each returns on `127.0.0.1`. The ELA main chain is never restarted.
 - `uninstall` stops all processes, backs up the keystore, and removes the installation after typed confirmation.
+- `eco purge` stops the decommissioned ECO chain and its oracle and deletes their data, with a keystore backup first. It acts only on nodes where ECO is actually present; `migrate` reports such nodes.
 
 ## Unchanged by design
 

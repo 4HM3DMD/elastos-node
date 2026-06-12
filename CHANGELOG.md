@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.4 - Removal command for the decommissioned ECO chain
+
+### Added
+- `node.sh eco purge`: stops `eco` and `eco-oracle` and deletes their data on nodes migrated from the upstream runner that still carry the decommissioned ECO side chain. Detection-gated: on a node without ECO the command reports that there is nothing to remove and changes nothing. Before deleting, the ECO keystore and its password file are backed up to `~/eco-keystore-backup-<timestamp>.tar.gz`; the backup must succeed or nothing is deleted. Deletion requires typing `eco` to confirm, or `--yes` for unattended use; an unattended run without `--yes` is refused. A relocated (symlinked) data directory is reported so its target can be reclaimed manually.
+- `migrate` detects a leftover ECO installation and points to `eco purge`.
+
+### Changed
+- `migrate --apply` no longer restarts a running ECO daemon to harden it; it leaves ECO untouched and suggests `eco purge`, since removal rather than hardening is the appropriate action for a decommissioned chain.
+- `purge` is accepted only for the `eco` chain; on any other chain it exits with an error.
+
 ## v1.0.0-rc.3 - Warn instead of refuse on a missing cold reward address
 
 ### Changed

@@ -100,4 +100,16 @@ Daemons started by the fork keep running during a rollback; restart them with th
 - All upstream commands keep working after the swap, including the BPoS and CRC governance commands.
 - `status` prints the classic full output when not attached to a TTY, so existing parsing scripts continue to work.
 - `restart` excludes the ELA main chain unless `--force` is given.
-- The decommissioned ECO and PGP chains are not started by the fork. A still-running ECO or PGP process from the upstream script is detected by `migrate --apply` and can be hardened or stopped manually.
+- The decommissioned ECO and PGP chains are not started by the fork.
+
+## Removing a leftover ECO installation
+
+Some upstream nodes still have the decommissioned ECO side chain installed and running. `migrate` detects this and reports it. To stop ECO and its oracle and remove their data:
+
+```bash
+node.sh eco purge
+```
+
+The command only acts when ECO is actually present on the node; otherwise it reports that there is nothing to remove. Before deleting, it stops `eco` and `eco-oracle` and backs up the ECO keystore and its password file to `~/eco-keystore-backup-<timestamp>.tar.gz`. Deletion requires typing `eco` to confirm (or the `--yes` flag for unattended use). If the ECO data directory was relocated through a symbolic link, the link target is reported so the space can be reclaimed manually.
+
+`migrate --apply` leaves a running ECO daemon untouched and points to `eco purge` instead of restarting it.

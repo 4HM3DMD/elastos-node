@@ -20,7 +20,7 @@ All upstream commands continue to work unchanged. The fork uses the same directo
 | `esc-oracle`, `eid-oracle`, `pg-oracle` | Cross-chain oracle services |
 | `arbiter` | Cross-chain arbiter |
 
-The decommissioned ECO and PGP side chains are excluded from all profiles and are not started by this script.
+The decommissioned ECO and PGP side chains are excluded from all profiles and are not started by this script. A leftover ECO installation from the upstream runner can be stopped and removed with `node.sh eco purge`; the command detects whether ECO is present and does nothing on nodes without it.
 
 ## Requirements
 
@@ -126,6 +126,7 @@ where `<chain>` is one of `ela`, `esc`, `esc-oracle`, `eid`, `eid-oracle`, `pg`,
 | `jsonrpc` / `rpc` | Send a JSON-RPC request to the chain |
 | `init`, `update`, `version` | Per-chain lifecycle |
 | `compress_log`, `remove_log` | Log maintenance |
+| `purge` (eco only) | Stop eco and eco-oracle and delete their data; keystore backed up first |
 
 ELA additionally supports the governance commands from the upstream runner: `register_bpos`, `activate_bpos`, `unregister_bpos`, `vote_bpos`, `stake_bpos`, `unstake_bpos`, `claim_bpos`, `register_crc`, `activate_crc`, `unregister_crc`, `send`, `transfer`. Commands may be written in kebab-case (`register-bpos`) or snake_case (`register_bpos`).
 

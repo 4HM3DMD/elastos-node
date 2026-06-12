@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.3"
+ELASTOS_NODE_VERSION="1.0.0-rc.4"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -1422,6 +1422,7 @@ migrate_apply()
         [ -z "$pid" ] && continue
         cmd=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
         echo "$cmd" | grep -qE -- '0[.]0[.]0[.]0|--unlock ' || { echo_ok "$chain already hardened"; continue; }
+        [ "$chain" == "eco" ] && { echo "  $(ui_yellow '!') eco is decommissioned - left untouched; remove it with:  $SCRIPT_NAME eco purge"; continue; }
         stale="$stale $chain"
     done
 
@@ -1540,6 +1541,13 @@ migrate()
         fi
     done
     [ -z "$stale" ] && echo "  no running EVM chain needs a restart"
+
+    # leftover decommissioned ECO install (common on upstream nodes)
+    if [ -d "$SCRIPT_PATH/eco" ] || [ -d "$SCRIPT_PATH/eco-oracle" ] || [ -f ~/.config/elastos/eco.txt ]; then
+        echo
+        echo "  $(ui_yellow '!') decommissioned ECO chain detected on this node"
+        echo "    after migrating, stop + remove it with:  $SCRIPT_NAME eco purge"
+    fi
 
     # 6. snapshot for rollback (live edit only)
     if [ -z "$dryrun" ]; then
@@ -3956,6 +3964,64 @@ esc_update()
     fi
 }
 
+# eco_purge: the ECO side chain is decommissioned network-wide. Stop eco + eco-oracle
+# and DELETE their data - only when ECO actually exists on this node. The eco keystore
+# and its password file are backed up to a tarball first.
+eco_purge()
+{
+    local found= ans ts bk note_tgt=
+    [ -d $SCRIPT_PATH/eco ] && found=1
+    [ -d $SCRIPT_PATH/eco-oracle ] && found=1
+    [ -f ~/.config/elastos/eco.txt ] && found=1
+    pgrep -f '^\./eco .*--rpc ' 1>/dev/null 2>&1 && found=1
+    pgrep -fx 'node crosschain_eco.js' 1>/dev/null 2>&1 && found=1
+    if [ -z "$found" ]; then
+        echo "eco is not installed on this node - nothing to remove."
+        return 0
+    fi
+
+    ui_bold "Remove the decommissioned ECO side chain"; echo
+    echo "  This will stop eco + eco-oracle and DELETE:"
+    [ -d $SCRIPT_PATH/eco ]          && echo "    $SCRIPT_PATH/eco  ($(du -sh $SCRIPT_PATH/eco 2>/dev/null | cut -f1))"
+    [ -d $SCRIPT_PATH/eco-oracle ]   && echo "    $SCRIPT_PATH/eco-oracle"
+    [ -f ~/.config/elastos/eco.txt ] && echo "    ~/.config/elastos/eco.txt"
+    echo "  The eco keystore + password file are backed up first."
+    echo
+    if [ "$1" != "--yes" ] && [ "$1" != "-y" ]; then
+        if noninteractive; then echo_error "refusing to delete unattended - re-run '$SCRIPT_NAME eco purge --yes'"; return 1; fi
+        read -p "Type 'eco' to confirm deletion: " ans
+        [ "$ans" == "eco" ] || { echo "Aborted - nothing changed."; return 1; }
+    fi
+
+    eco_stop 2>/dev/null
+    eco-oracle_stop 2>/dev/null
+
+    ts=$(date '+%F-%H%M%S')
+    bk=~/eco-keystore-backup-$ts.tar.gz
+    if [ -d $SCRIPT_PATH/eco/data/keystore ] || [ -f ~/.config/elastos/eco.txt ]; then
+        if ! tar -czf "$bk" \
+            $( [ -d $SCRIPT_PATH/eco/data/keystore ] && echo "$SCRIPT_PATH/eco/data/keystore" ) \
+            $( [ -f ~/.config/elastos/eco.txt ] && echo "$HOME/.config/elastos/eco.txt" ) 2>/dev/null; then
+            echo_error "keystore backup failed - NOT deleting anything"
+            rm -f "$bk"
+            return 1
+        fi
+        chmod 600 "$bk"
+        echo_ok "keystore backed up: $bk"
+    fi
+
+    # if the data dir was relocated via a symlink, deleting eco/ leaves the target behind
+    if [ -L $SCRIPT_PATH/eco/data ]; then
+        note_tgt=$(readlink "$SCRIPT_PATH/eco/data" 2>/dev/null)
+    fi
+
+    rm -rf $SCRIPT_PATH/eco $SCRIPT_PATH/eco-oracle
+    rm -f ~/.config/elastos/eco.txt
+    echo_ok "eco + eco-oracle removed"
+    [ -n "$note_tgt" ] && echo "  note: eco/data was a symlink to $note_tgt - remove that directory manually to reclaim the space"
+    return 0
+}
+
 eco_update()
 {
     unset OPTIND
@@ -6288,6 +6354,9 @@ chain_help()
         esc|eid|pg)
             echo "  reward:        set a cold mining address via  $SCRIPT_NAME reward set 0x.."
             ;;
+        eco)
+            echo "  purge:         stop eco + eco-oracle and DELETE their data (chain is decommissioned)"
+            ;;
     esac
 }
 
@@ -6477,6 +6546,7 @@ else
          [ "$2" == "jsonrpc" ] || \
          [ "$2" == "update"  ] || [ "$2" == "upgrade" ] || \
          [ "$2" == "init"    ] || \
+         [ "$2" == "purge"   ] || \
          [ "$2" == "register_bpos"   ] || \
          [ "$2" == "activate_bpos"   ] || \
          [ "$2" == "unregister_bpos" ] || \
@@ -6507,6 +6577,10 @@ else
 
     shift 2
 
+    if [ "$COMMAND" == "purge" ] && [ "$CHAIN_NAME" != "eco" ]; then
+        echo_error "purge is only available for the decommissioned eco chain"
+        exit 1
+    fi
     if [ "$COMMAND" == "status" ]; then
         case "$1" in
             --verbose|-v|--all) ${CHAIN_NAME}_status ;;
