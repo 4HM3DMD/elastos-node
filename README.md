@@ -119,6 +119,7 @@ node.sh ela status
 | `update` | Update chain binaries |
 | `profile [set <p>]` | Show or set the deployment profile |
 | `firewall` | Open the peer/consensus ports for the active profile |
+| `harden` | Close public access to the RPC ports and report any chain that still needs a restart |
 | `reward [set <0x..>]` | Show or set the cold mining reward address for all side chains |
 | `migrate [--dry-run]` | Move an existing upstream or older-fork installation onto this fork |
 | `migrate --apply [--yes]` | Staged restart that applies the hardened RPC binding (side chains only) |
@@ -162,6 +163,7 @@ ELA additionally supports the governance commands from the upstream runner: `reg
 Summary of the defaults; details and the full port table are in [SECURITY.md](SECURITY.md).
 
 - RPC and WebSocket bind to `127.0.0.1`. The bind address can be changed deliberately via the `EVM_RPC_BIND` environment variable or `~/.config/elastos/evm_rpc_bind`; an invalid value falls back to `127.0.0.1`.
+- Hardening applies in two layers. The host firewall is closed on the RPC ports automatically by `migrate`, `update_script`, and the `harden` command (this takes effect immediately and restarts nothing). The daemon bind to `127.0.0.1` and the removal of `--unlock`/`personal` take effect when a chain is next restarted. `harden` reports which running chains still need that restart.
 - No `--unlock` and no `--allow-insecure-unlock`. Block production signs with the dedicated PBFT/ELA keystore, so sealing is unaffected.
 - The `personal`, `admin`, `db`, and `miner` RPC namespaces are not exposed.
 - A mining side chain without a cold reward address starts with a prominent red warning that block rewards credit the node's local hot account. Set a cold address with `reward set`.

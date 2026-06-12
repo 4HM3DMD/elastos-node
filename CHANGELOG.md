@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.8 - Automatic firewall hardening, and cleaner status
+
+### Added
+- `harden` command. It closes the host firewall on the RPC and WebSocket ports (`20336`, `20635/6`, `20645/6`, `20655/6`, `20675/6`) and reports which running EVM daemons are still bound to `0.0.0.0` and so need a restart to rebind to `127.0.0.1`. The firewall close is immediate, reversible, idempotent, and restarts nothing; local loopback access is unaffected.
+- `migrate` and `update_script` now run the firewall close automatically. Moving onto the fork, or updating it, immediately closes the public RPC exposure rather than leaving it open until the operator restarts the chains. The daemon rebind still requires a restart, which `harden` and the migration output both call out.
+
+  This addresses the gap where swapping the script alone changed nothing about the live exposure: the firewall layer now closes on update, and the restart layer is clearly flagged.
+
+### Changed
+- `status` and `<chain> status` are restored to the classic upstream labeled block: one aligned field per line, all fields, no added header or footer. The earlier compact and trimmed variants were removed in favor of the format operators preferred. `summary` remains the one-line-per-chain table.
+
 ## v1.0.0-rc.7 - Config lookup independent of the script filename
 
 ### Fixed

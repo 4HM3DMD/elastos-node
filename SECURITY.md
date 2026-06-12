@@ -22,6 +22,15 @@ An invalid value falls back to `127.0.0.1`. A non-loopback bind is reported at e
 
 Note: binding to a single non-loopback address means the daemon no longer listens on `127.0.0.1`, so local tooling (`node.sh <chain> jsonrpc` and the RPC-derived status fields) will report `N/A`. If local tooling must keep working alongside a network bind, use `0.0.0.0` behind a firewall instead of a single external address.
 
+## Hardening applies in two layers
+
+Closing the exposure on an EVM side chain happens in two steps, because the bind address is fixed at process start:
+
+1. **Firewall (immediate).** The host firewall is closed on the RPC and WebSocket ports. This blocks the internet at once, restarts nothing, and is reversible. It is performed automatically by `migrate`, `update_script`, and the `harden` command. Local tooling (oracle, arbiter, CLI) is unaffected because it reaches the node over loopback, which a host firewall does not filter.
+2. **Daemon rebind (on restart).** Binding RPC/WS to `127.0.0.1` and dropping `--unlock` and the `personal` namespace take effect only when the chain is restarted. On a producing node this is staged by the operator, one chain at a time, after each chain is synced.
+
+Run `node.sh harden` at any time to close the firewall ports and list which running chains still need a restart for the second layer. Until that restart, the firewall is what blocks external access, so it must remain in place.
+
 ## Remote access
 
 Do not expose the RPC or WebSocket ports to the internet. For remote monitoring or tooling, use an SSH tunnel or a VPN:

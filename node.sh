@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.7"
+ELASTOS_NODE_VERSION="1.0.0-rc.8"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -235,23 +235,18 @@ chain_pid()
 # classic view the operator preferred - just without the clutter.
 render_status_one()
 {
-    [ -t 1 ] || { "${1}_status"; return; }   # piped: full classic dump, stderr attached like upstream
-    local out
-    out=$("${1}_status" 2>/dev/null | grep -vE '^(Balance|PID|#Files|#TCP|TCP Ports|UDP Ports):')
-    [ -n "$out" ] && printf '%s\n' "$out"
+    # the familiar upstream labeled block, verbatim - one aligned field per line
+    "${1}_status"
 }
 
 # render_status_all: a card for every chain in the active profile.
 render_status_all()
 {
-    [ -t 1 ] || { all_status; return; }   # piped: emit the full classic dump
+    # one classic labeled block per chain, a blank line between - no extra chrome
     local chain
     echo
-    printf '  %s   profile: %s\n' "$(ui_bold 'Elastos node')" "$(get_profile)"
-    echo
-    for chain in $(profile_chains); do render_status_one "$chain"; echo; done
-    echo
-    echo "  $(ui_dim "full detail: node.sh <chain> status --verbose   ·   one-line: node.sh summary")"
+    for chain in $(profile_chains); do "${chain}_status"; echo; done
+    echo "  $(ui_dim "one-line glance: $SCRIPT_NAME summary")"
     echo
 }
 
@@ -387,6 +382,10 @@ update_script()
     mv "$SCRIPT_TMP" "$SCRIPT"
     chmod a+x "$SCRIPT"
     echo_ok "$SCRIPT updated"
+    echo
+    echo "Closing public RPC exposure (firewall only - safe, nothing is restarted):"
+    harden_firewall
+    echo "  to also rebind the live daemons, restart each chain after it is synced:  $SCRIPT_NAME <chain> restart"
 }
 # has_cold_miner <chain>: true when the chain either does not mine or has a valid
 # cold reward address set. Silent; used by warn_hot_miner and status displays.
@@ -1162,6 +1161,63 @@ firewall()
     sudo ufw status verbose
 }
 
+# RPC/WS ports that must never be reachable from the internet. Local tooling (oracle,
+# arbiter, CLI) reaches the node over loopback, which a host firewall never blocks.
+RPC_FIREWALL_PORTS="20336 20635 20636 20645 20646 20655 20656 20675 20676"
+
+# harden_firewall: close public access to the RPC/WS ports. Safe, reversible, idempotent,
+# and it never restarts a daemon - so syncing and consensus are untouched. Returns 0.
+harden_firewall()
+{
+    local port closed=
+    if ! command -v ufw >/dev/null 2>&1; then
+        echo_warn "ufw not installed - make sure your cloud firewall blocks 20636/20646/20676 from the internet"
+        return 0
+    fi
+    if ! ufw status 2>/dev/null | grep -q "Status: active"; then
+        echo_warn "ufw inactive - make sure your cloud firewall blocks 20636/20646/20676 from the internet"
+        return 0
+    fi
+    for port in $RPC_FIREWALL_PORTS; do
+        if ufw status 2>/dev/null | grep -qE "^${port}/tcp[[:space:]].*ALLOW"; then
+            sudo ufw delete allow ${port}/tcp >/dev/null 2>&1 && closed="$closed $port"
+        fi
+    done
+    if [ -n "$closed" ]; then
+        echo_ok "firewall: closed public access to RPC ports:$closed"
+    else
+        echo_ok "firewall: no public RPC ports were open"
+    fi
+    return 0
+}
+
+# harden: the firewall close above, plus a report of which running EVM daemons still
+# bind 0.0.0.0 (and so need a restart to fully rebind to 127.0.0.1). Restarts nothing.
+harden()
+{
+    local chain pid cmd exposed=
+    ui_bold "Harden - close public RPC exposure"; echo
+    harden_firewall
+    echo
+    for chain in $EVM_CHAINS; do
+        pid=$(pgrep -f "^\./$chain .*--rpc " 2>/dev/null | head -1)
+        [ -z "$pid" ] && continue
+        cmd=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
+        if echo "$cmd" | grep -qE -- '0[.]0[.]0[.]0|--unlock '; then
+            echo "  $(ui_yellow '!') $chain still bound to 0.0.0.0 - restart to rebind:  $SCRIPT_NAME $chain restart"
+            exposed=1
+        fi
+    done
+    if [ -n "$exposed" ]; then
+        echo
+        echo "  The firewall change already blocks the internet. The restart is defense-in-depth"
+        echo "  (rebinds RPC to 127.0.0.1, drops --unlock/personal) - do it after each chain is synced."
+    else
+        echo_ok "all running EVM daemons are bound to 127.0.0.1"
+    fi
+}
+
+
 # setup: one-time host prep for a fresh Ubuntu box, then initialize the node.
 # Installs dependencies, adds swap, opens the firewall, enables autostart, runs init.
 # clean_orphaned_config: a deleted ~/node can leave ~/.config/elastos/<chain>.txt
@@ -1517,9 +1573,12 @@ migrate()
     # 7. hand control to the operator - never auto-restart
     echo
     if [ -n "$dryrun" ]; then
-        ui_bold "DRY-RUN complete"; echo " - re-run '$SCRIPT_NAME migrate' (no flag) to write the profile + snapshot."
+        ui_bold "DRY-RUN complete"; echo " - re-run '$SCRIPT_NAME migrate' (no flag) to write the profile + snapshot AND close the public RPC firewall ports."
     else
         ui_bold "Migration prepared."; echo " The script is already swapped (zero downtime); daemons are still up."
+        echo
+        echo "Closing public RPC exposure (firewall only - safe, nothing is restarted):"
+        harden_firewall
     fi
     if [ -n "$stale" ]; then
         echo "Apply the hardening - restart these ONE AT A TIME, staying above quorum:"
@@ -6338,6 +6397,7 @@ usage()
     echo "  init               download binaries + create the keystore"
     echo "  profile [set P]    choose what this node runs (mainchain | full)"
     echo "  firewall           open peer/consensus ports (RPC stays on 127.0.0.1)"
+    echo "  harden             close public RPC ports + report any restart needed"
     echo "  reward [set 0x..]  cold miner reward address for the side chains"
     echo
     echo "MANAGE"
@@ -6431,6 +6491,9 @@ elif [ "$1" == "setup" ]; then
     exit
 elif [ "$1" == "firewall" ]; then
     firewall
+    exit
+elif [ "$1" == "harden" ]; then
+    harden
     exit
 elif [ "$1" == "set_path" ]; then
     set_path
