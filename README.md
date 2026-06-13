@@ -112,14 +112,15 @@ node.sh ela status
 | `start` / `up` | Start every chain in the active profile |
 | `stop` / `down` | Stop every chain in the active profile |
 | `restart` | Restart the profile's chains one at a time (excludes `ela` unless `--force` is given) |
-| `status` | Per-chain status for the active profile (`--verbose` for the complete dump) |
+| `status` | Per-chain labeled status block for the active profile |
 | `summary` / `ps` | One row per chain: state, height, peers, sync (`--json` available) |
 | `health` | One-line verdict per chain; exits non-zero if any chain is unhealthy |
 | `logs [<chain>] [-f]` | Show the most recent log for a chain (`-f` to follow) |
 | `update` | Update chain binaries |
+| `update_script` | Update `node.sh` itself (checksum-verified) and re-close the firewall |
 | `profile [set <p>]` | Show or set the deployment profile |
 | `firewall` | Open the peer/consensus ports for the active profile |
-| `harden` | Close public access to the RPC ports and report any chain that still needs a restart |
+| `harden` | Close public access to the RPC, oracle, and arbiter ports; report any chain that still needs a restart |
 | `reward [set <0x..>]` | Show or set the cold mining reward address for all side chains |
 | `migrate [--dry-run]` | Move an existing upstream or older-fork installation onto this fork |
 | `migrate --apply [--yes]` | Staged restart that applies the hardened RPC binding (side chains only) |
@@ -138,7 +139,7 @@ where `<chain>` is one of `ela`, `esc`, `esc-oracle`, `eid`, `eid-oracle`, `pg`,
 | Command | Description |
 |---|---|
 | `start` / `up`, `stop` / `down`, `restart` | Process control |
-| `status [--json] [--verbose]` | Status in labeled, machine-readable, or complete form |
+| `status [--json]` | Labeled status block, or machine-readable with `--json` |
 | `health` | Single-chain health check with exit code |
 | `logs [-f]` | Most recent log file |
 | `client` | Invoke the chain's CLI client |
@@ -167,7 +168,7 @@ Summary of the defaults; details and the full port table are in [SECURITY.md](SE
 - No `--unlock` and no `--allow-insecure-unlock`. Block production signs with the dedicated PBFT/ELA keystore, so sealing is unaffected.
 - The `personal`, `admin`, `db`, and `miner` RPC namespaces are not exposed.
 - A mining side chain without a cold reward address starts with a prominent red warning that block rewards credit the node's local hot account. Set a cold address with `reward set`.
-- `update` verifies a published SHA-256 checksum and a syntax check before replacing the script.
+- `update_script` verifies a published SHA-256 checksum and a syntax check before replacing the script.
 - The ELA `sponsors` file required past block ~1,801,550 is downloaded automatically when missing.
 - The main-chain status query that can panic a syncing daemon is gated behind a sync check and reports `N/A` until the node is synced.
 

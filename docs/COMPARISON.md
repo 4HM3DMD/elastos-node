@@ -16,7 +16,8 @@ The fork keeps the upstream data layout, binaries, daemons, and commands, and ch
 | RPC API surface | Mining: `db,eth,net,pbft,personal,txpool,web3` (EID also `miner`); follower: `admin,eth,net,txpool,web3` | Mining: `eth,net,web3,txpool,pbft`; follower: `eth,net,web3,txpool` |
 | Mining rewards | Default to the node's local account unless a reward address file is created manually; no warning | Same default, but every start of a mining chain without a cold reward address prints a prominent red warning; `reward set` configures all side chains at once |
 | Script self-update | Downloads the upstream master branch with no checksum and no syntax check | Downloads this repository, verifies the published SHA-256 checksum, and runs `bash -n` before installing |
-| Firewall | Not managed by the script | `firewall` command opens only the peer and consensus ports for the active profile |
+| Firewall | Not managed by the script | `firewall` opens only the peer and consensus ports; `harden` closes the RPC, oracle, and arbiter RPC ports, and is run automatically by `migrate` and `update_script` |
+| Hardening on update | No mechanism | `migrate` and `update_script` close the public RPC/oracle/arbiter ports automatically; `harden` reports which chains still need a restart to rebind |
 
 ## Reliability and status accuracy
 

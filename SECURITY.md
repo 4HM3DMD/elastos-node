@@ -4,11 +4,12 @@
 
 `elastos-node` runs the Elastos chains with the following defaults:
 
-- **Loopback-only RPC.** Every chain's JSON-RPC and WebSocket endpoints bind to `127.0.0.1`. They are reachable by the node's own oracle, arbiter, and CLI over loopback, but not from the network.
+- **Loopback-only EVM RPC.** Each EVM side chain's JSON-RPC and WebSocket endpoints bind to `127.0.0.1`. They are reachable by the node's own oracle, arbiter, and CLI over loopback, but not from the network.
+- **Local-only services firewalled.** The ela RPC (also IP allow-listed by its config), the crosschain oracle ports, and the arbiter RPC are closed to the internet by the firewall, since none of them need public access. The `harden` command applies this, and `migrate` and `update_script` run it automatically.
 - **No remotely-spendable account.** EVM mining nodes do not unlock a signing account on startup. Block production uses the dedicated PBFT keystore; the EVM account is never unlocked for RPC, so there is no node-side `eth_sendTransaction` signing path.
 - **Reduced RPC surface.** The `personal`, `admin`, `db`, and `miner` namespaces are not exposed.
 - **Cold reward address warning.** A mining side chain without a configured cold reward address starts, but prints a prominent red warning at every start: block rewards then credit the node's local hot account. Configure a cold address with `node.sh reward set`.
-- **Verified self-update.** `update` checks the download against a published SHA-256 checksum and runs a syntax check before replacing the script.
+- **Verified self-update.** `update_script` checks the download against a published SHA-256 checksum and runs a syntax check before replacing the script.
 - **Sync-safe status.** Status queries that can panic a syncing daemon are gated behind a sync check.
 
 ## Changing the RPC bind address
@@ -42,20 +43,20 @@ ssh -N -L 20636:127.0.0.1:20636 operator@your-node
 
 ## Port table
 
-Keep the peer-to-peer and consensus ports open. The RPC and WebSocket ports bind to loopback and require no firewall rule.
+Ports fall into groups by role, each with its own posture.
 
-| Chain | Open (P2P / consensus) | Loopback only (RPC / WS) |
+| Ports | Role | Posture |
 |---|---|---|
-| ela | `20338`, `20339` | `20336` (restricted by the node's IP whitelist) |
-| esc | `20638`, `20639` | `20636`, `20635` |
-| eid | `20648`, `20649` | `20646`, `20645` |
-| pg | `20678`, `20679` | `20676`, `20675` |
+| ela `20338`/`20339`, esc `20638`/`20639`, eid `20648`/`20649`, pg `20678`/`20679`, arbiter `20538` | Peer-to-peer and consensus | **Open** (peers and consensus require them) |
+| esc `20636`/`20635`, eid `20646`/`20645`, pg `20676`/`20675` | EVM RPC / WebSocket | Bound to `127.0.0.1` once the chain is restarted on this fork; firewall-closed until then |
+| ela `20336` | Main-chain RPC | Restricted by the config IP allow-list (`WhiteIPList`) and firewall-closed |
+| oracle `20632`/`20642`/`20672`, arbiter RPC `20536` | Local-only services | Firewall-closed by `harden` (their bind is set in their own code, not in node.sh flags) |
 
-The `firewall` command opens the correct set for the active profile. Equivalent UFW rules:
+The `firewall` command opens the peer/consensus group. The `harden` command closes everything in the other three groups, and is run automatically by `migrate` and `update_script`. Equivalent UFW rules:
 
 ```bash
-ufw allow 20338,20339,20638,20639,20648,20649,20678,20679/tcp   # P2P / consensus
-# RPC/WS need no rule; they bind to 127.0.0.1
+ufw allow 20338,20339,20538,20638,20639,20648,20649,20678,20679/tcp   # peer/consensus, keep open
+# everything else (RPC, WS, oracle, arbiter RPC) stays closed to the internet
 ```
 
 ## Reporting a vulnerability
