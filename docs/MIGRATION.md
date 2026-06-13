@@ -1,127 +1,136 @@
-# Migration guide
+# Operator guide: migrating to elastos-node
 
-This document describes how to move an existing Elastos node onto this fork. It covers two starting points:
+This guide moves an existing Elastos node from the official `elastos/Elastos.Node` runner (or an older version of this fork) onto the hardened fork, and then secures it. It covers two kinds of operator:
 
-- a node running the official `elastos/Elastos.Node` runner
-- a node running an older version of this fork
+- **Council / supernode** operators, who produce blocks and must stay above consensus quorum.
+- **Validator / full-node** operators, who run a node without that constraint.
 
-The migration is designed so that the ELA main chain is never restarted. A council or supernode operator keeps producing and signing throughout.
+Differences between the two are called out where they matter. If you run the main chain only, you can skip the side-chain steps.
 
-## What migration does and does not do
+## What migration does, and does not do
 
-| Preserved, never touched | Written | Never done automatically |
+| Preserved, never touched | Done for you | Never done automatically |
 |---|---|---|
-| ELA keystore (`ela/keystore.dat`) | Deployment profile (`~/.config/elastos/profile`) | Restarting any process |
-| Chain data for every chain | Rollback snapshots of the script and configuration | Deleting any file |
-| Keystore passwords and configuration | | Changing chain data |
+| `ela/keystore.dat` and all keystores | Backs up your old `node.sh` | Restarting a chain daemon |
+| All chain data | Verifies the download checksum | Deleting chain data |
+| Configuration, including the `WhiteIPList` in `ela/config.json` and `arbiter/config.json` | Writes the deployment profile and a rollback snapshot | Touching SSH or any OS setting |
+| Keystore passwords | Closes the public RPC firewall ports | Restarting the ELA main chain |
+
+The install step **restarts nothing**. Your chains keep running and syncing throughout. The only step that restarts a daemon is the side-chain hardening (Step 3), which you control.
 
 ## Prerequisites
 
-- A working installation in `~/node` with `ela/keystore.dat` present. Migration aborts if the keystore is missing.
-- A cold reward address for mining side chains is recommended. A mining chain without one still starts, but prints a red warning at every start, because block rewards then credit the node's local hot account. The migration reports which chains are affected.
+- Ubuntu, with the node installed in `~/node` and `ela/keystore.dat` present.
+- Run as the same user that owns `~/node` (typically the node's normal user).
 
-## Quick path
-
-One command performs the whole migration: it backs up the existing `node.sh`, verifies and installs the fork, and runs `migrate`. Nothing is restarted.
+## Step 1: Install and migrate (one command)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/install.sh | bash
 ```
 
-Then, when ready, apply the hardened RPC binding in stages (see step 5 below):
+On an existing node this verifies the published checksum, backs up your current `node.sh` to `node.sh.pre-fork.<timestamp>`, swaps in the fork, runs `migrate` (which writes the profile and a rollback snapshot and closes the public RPC firewall ports), and **restarts nothing**. On a fresh box it installs the script and points you to `node.sh setup`.
+
+To review the installer before running it:
 
 ```bash
-node.sh migrate --apply
+curl -fsSL -o install.sh https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/install.sh
+less install.sh && bash install.sh
 ```
 
-The rest of this document describes the same procedure step by step, for operators who prefer to drive each step or preview first.
-
-## Step by step
-
-### 1. Preview (optional, read-only)
+## Step 2: Verify the migration
 
 ```bash
-cd ~/node
-curl -fsSL -o node.sh.new https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/node.sh
-chmod +x node.sh.new
-./node.sh.new migrate --dry-run
+node.sh summary
 ```
 
-The dry run reports the detected source installation, the keystore preflight, the inferred profile, the reward-address status per mining chain, and which running side chains hold stale (unhardened) flags. It changes nothing.
+Every chain in your profile should still be running, with heights advancing. Your node is now managed by the fork, but each daemon is still running under its old flags until you restart it in Step 3.
 
-### 2. Install the fork
-
-Either run the one-line installer above, or place the script by hand:
+Council operators: confirm your RPC IP allow-list survived (it does; migration never edits `config.json`):
 
 ```bash
-cd ~/node
-cp -p node.sh node.sh.upstream      # keep the old script
-mv node.sh.new node.sh
-./node.sh migrate
+grep -c WhiteIPList ~/node/ela/config.json ~/node/arbiter/config.json
 ```
 
-This writes the profile and the rollback snapshots. Running daemons are not touched; they continue under the flags they were started with. The script swap itself is zero-downtime.
+## Step 3: Harden the side-chain daemons
 
-### 3. Set the cold reward address, if reported
+Hardening is two layers. The **firewall** layer (closing the public RPC ports) was already done in Step 1. This step applies the **daemon** layer: it rebinds RPC and WebSocket to `127.0.0.1` and drops `--unlock` and the `personal` API. That only takes effect when a chain restarts.
+
+Restart each EVM side chain **after it has finished syncing**:
 
 ```bash
-node.sh reward set 0xYOURCOLDADDRESS
+node.sh esc restart
+node.sh pg restart
+node.sh eid restart
 ```
 
-This step is recommended rather than required. A mining chain without a cold reward address starts with a red warning, and its rewards credit the node's local hot account until one is set.
+Each restart preserves chain data and brings the chain back bound to `127.0.0.1`. The **ELA main chain is never restarted** by the fork, so a producer keeps signing throughout.
 
-### 4. Apply the hardened binding
+- **Council operators:** restart a given side chain on only a **few nodes at a time**, staying above two-thirds of the council, and wait for each node's chain to rejoin before doing the next batch. This keeps each side chain's consensus healthy. The main chain is untouched, so DPoS consensus is never at risk.
+- **Validator operators:** there is no quorum concern. Restart the side chains whenever each is synced.
 
-The hardened RPC binding takes effect when a side chain restarts. Apply it in stages:
+If you run the main chain only, there are no side chains to restart and this step is complete.
+
+## Step 4: Verify the node is secure
 
 ```bash
-node.sh migrate --apply
+node.sh harden
 ```
 
-This restarts only the side chains still running with stale flags, one at a time, and verifies each returns on `127.0.0.1` before restarting the next. The ELA main chain is excluded. The procedure stops at the first failure.
-
-For a fleet (for example, 12 council nodes), apply on one node at a time per chain, so the number of simultaneously restarting nodes for any chain stays well below the consensus quorum.
-
-### 5. Verify
+`harden` closes any still-open public RPC, oracle, or arbiter port and reports which chains, if any, still need a restart. When it reports no public ports open and all daemons bound to `127.0.0.1`, the node is locked down. Confirm directly:
 
 ```bash
-node.sh summary        # every chain running, heights advancing
-node.sh health         # exit code 0
-ss -tlnp | grep -E '20636|20646|20676'   # RPC listeners on 127.0.0.1 only
+ss -tlnp | grep -E ':20636|:20646|:20676'
 ```
 
-## Rollback
+Each RPC port should show `127.0.0.1`, not `0.0.0.0` or `*`. The peer-to-peer and consensus ports (`20338/20339`, `20638/20639`, `20648/20649`, `20678/20679`) remain public, which is correct.
 
-Migration writes two snapshots before changing anything:
+## Step 5: Remove the ECO side chain (when decommissioning)
 
-- `~/node/node.sh.bak.<timestamp>`: the previous script
-- `~/.config/elastos.bak.<timestamp>`: the previous configuration directory
-
-To roll back:
-
-```bash
-cd ~/node
-cp node.sh.bak.<timestamp> node.sh
-rm -rf ~/.config/elastos && cp -rp ~/.config/elastos.bak.<timestamp> ~/.config/elastos
-```
-
-Daemons started by the fork keep running during a rollback; restart them with the restored script at a convenient time.
-
-## Compatibility notes
-
-- All upstream commands keep working after the swap, including the BPoS and CRC governance commands.
-- `status` prints the classic full output when not attached to a TTY, so existing parsing scripts continue to work.
-- `restart` excludes the ELA main chain unless `--force` is given.
-- The decommissioned ECO and PGP chains are not started by the fork.
-
-## Removing a leftover ECO installation
-
-Some upstream nodes still have the decommissioned ECO side chain installed and running. `migrate` detects this and reports it. To stop ECO and its oracle and remove their data:
+ECO is decommissioned and is not part of any profile. When you are ready to remove a leftover ECO install:
 
 ```bash
 node.sh eco purge
 ```
 
-The command only acts when ECO is actually present on the node; otherwise it reports that there is nothing to remove. Before deleting, it stops `eco` and `eco-oracle` and backs up the ECO keystore and its password file to `~/eco-keystore-backup-<timestamp>.tar.gz`. Deletion requires typing `eco` to confirm (or the `--yes` flag for unattended use). If the ECO data directory was relocated through a symbolic link, the link target is reported so the space can be reclaimed manually.
+This is detection-gated: on a node without ECO it reports that there is nothing to remove and changes nothing. On a node with ECO it shows what it will delete and the disk space it will reclaim, requires you to type `eco` to confirm (or `--yes` for unattended runs), stops `eco` and `eco-oracle`, backs up the ECO keystore and password file to `~/eco-keystore-backup-<date>.tar.gz` (and aborts if that backup fails), then deletes `eco/`, `eco-oracle/`, and `eco.txt`. If the data directory was relocated by a symlink, it reports the target so you can reclaim that space manually.
 
-`migrate --apply` leaves a running ECO daemon untouched and points to `eco purge` instead of restarting it.
+## Staying updated
+
+```bash
+node.sh update_script
+```
+
+This downloads the latest fork script, verifies its checksum, syntax-checks it, replaces the installed script, and re-runs the firewall hardening. Run it whenever you want the latest version.
+
+## Rollback
+
+The migration left two restore points:
+
+- `~/node/node.sh.pre-fork.<timestamp>` (your previous script)
+- `~/.config/elastos.bak.<timestamp>` (your previous configuration)
+
+To revert the script:
+
+```bash
+cp ~/node/node.sh.pre-fork.* ~/node/node.sh
+```
+
+Daemons are never stopped during migration, so a rollback does not interrupt them.
+
+## Not covered: SSH and OS hardening
+
+`node.sh` manages the Elastos services only. It never edits `sshd_config` and never closes the SSH port. Securing the host itself (for example, key-based SSH authentication instead of password login) is the operator's responsibility and should be done separately.
+
+## Command summary
+
+```
+curl -fsSL https://raw.githubusercontent.com/4HM3DMD/elastos-node/main/install.sh | bash   # migrate
+node.sh summary                 # verify
+node.sh esc restart             # harden each side chain after it is synced (council: stagger)
+node.sh pg restart
+node.sh eid restart
+node.sh harden                  # verify + close any remaining public ports
+node.sh eco purge               # remove ECO when decommissioning
+node.sh update_script           # stay current
+```
