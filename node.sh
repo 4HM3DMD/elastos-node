@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # elastos-node - hardened fork of elastos/Elastos.Node
-ELASTOS_NODE_VERSION="1.0.0-rc.9"
+ELASTOS_NODE_VERSION="1.0.0-rc.10"
 
 # Reset override flags so a value inherited from the environment cannot silently enable them.
 FORCE_ELA=
@@ -383,9 +383,9 @@ update_script()
     chmod a+x "$SCRIPT"
     echo_ok "$SCRIPT updated"
     echo
-    echo "Closing public RPC exposure (firewall only - safe, nothing is restarted):"
-    harden_firewall
-    echo "  to also rebind the live daemons, restart each chain after it is synced:  $SCRIPT_NAME <chain> restart"
+    # Re-exec the JUST-DOWNLOADED script's harden, not the old code still in memory, so
+    # any newly-added ports are closed in the same step (bash never reloads a running file).
+    "$SCRIPT" harden 2>/dev/null || harden_firewall
 }
 # has_cold_miner <chain>: true when the chain either does not mine or has a valid
 # cold reward address set. Silent; used by warn_hot_miner and status displays.

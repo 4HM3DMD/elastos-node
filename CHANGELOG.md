@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.0.0-rc.10 - update_script re-execs the new harden
+
+### Fixed
+- After a self-update, `update_script` now re-execs the just-downloaded script (`node.sh harden`) instead of calling the hardening code still loaded in memory. A running shell never reloads its own file, so when an update adds new ports to close (as rc.9 did for the oracle/arbiter ports), the auto-harden during that same update would otherwise use the previous port list and miss them. Re-execing the new script closes the newly-added ports in the same step. Falls back to the in-memory function if the re-exec is unavailable.
+
 ## v1.0.0-rc.9 - harden also closes the oracle and arbiter RPC ports
 
 ### Changed
