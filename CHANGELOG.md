@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file. Releases are tagged `vMAJOR.MINOR.PATCH`.
 
+## v1.1.0 - First stable release
+
+Validated end to end on a live node: one-line migration, the read views, the per-chain hardening restart (rebinding RPC to `127.0.0.1` with `--unlock` and `personal` removed), the firewall hardening, and ECO removal. This release consolidates the `1.0.0-rc` series into a stable tag.
+
+### Highlights
+- **Security.** Loopback-only EVM RPC, no remotely-unlockable account, reduced RPC surface, automatic firewall close of the RPC/oracle/arbiter ports on `migrate` and `update_script`, and a status command that cannot crash a syncing daemon.
+- **Operations.** One-line installer, deployment profiles (main chain only or full stack), `summary`/`health`/`status`/`logs`, staged `migrate`, `harden`, and `eco purge`.
+- **Compatibility.** Every upstream command continues to work; the directory layout, keystores, and chain data are unchanged, so the fork is a drop-in replacement.
+
+See the entries below for the full path from `v0.1.0`.
+
 ## v1.0.0-rc.10 - update_script re-execs the new harden
 
 ### Fixed
